@@ -35,11 +35,9 @@ yarn-error.log*
 
 # typescript
 next-env.d.ts
+*.tsbuildinfo
 /dist/
 /.wrangler/
 /.sites-runtime/
 /outputs/
 /work/
-
-# local Sites deployment metadata
-/.openai/hosting.json

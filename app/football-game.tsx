@@ -3,23 +3,32 @@
 import {
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import {
+  BarChart3,
+  BriefcaseBusiness,
   ChevronLeft,
   ChevronRight,
+  Crown,
   Gauge,
+  Landmark,
   Maximize2,
   Pause,
   Play,
   RotateCcw,
   Settings,
+  ShoppingCart,
   Shield,
+  Target,
   Trophy,
+  Users,
   Volume2,
   VolumeX,
+  WalletCards,
   Zap,
 } from "lucide-react";
 import {
@@ -38,22 +47,72 @@ type Screen = "menu" | "playing" | "finished";
 type Quality = "performance" | "balanced" | "ultra";
 type Difficulty = "easy" | "normal" | "hard";
 type GameMode = "solo" | "local2p";
+type CompetitionMode = "friendly" | "league" | "cup" | "career";
+type CupScope = "continental" | "world";
+type FormationId = "2-3-2" | "3-2-2" | "2-2-3";
+type TacticId = "balanced" | "attacking" | "defensive" | "counter";
 type SetPieceKind =
-  | "corner"
-  | "freeKick"
-  | "offside"
-  | "penalty"
-  | "throwIn"
-  | "goalKick";
+  "corner" | "freeKick" | "offside" | "penalty" | "throwIn" | "goalKick";
 
 type Team = {
   id: string;
   name: string;
   short: string;
   city: string;
+  flag: string;
   primary: string;
   secondary: string;
   rating: number;
+};
+
+type SquadSeed = [
+  name: string,
+  number: number,
+  overall: number,
+  naturalRole?: Role,
+];
+
+type FormationDefinition = {
+  id: FormationId;
+  label: string;
+  description: string;
+  slots: Array<[Role, number, number]>;
+};
+
+type TacticDefinition = {
+  id: TacticId;
+  label: string;
+  description: string;
+  line: number;
+  width: number;
+  pressure: number;
+  forwardRuns: number;
+  tempo: number;
+};
+
+type LeagueRow = {
+  teamId: string;
+  played: number;
+  wins: number;
+  draws: number;
+  losses: number;
+  goalsFor: number;
+  goalsAgainst: number;
+  points: number;
+};
+
+type CareerState = {
+  clubId: string;
+  season: number;
+  budget: number;
+  fans: number;
+  squad: SquadSeed[];
+  history: string[];
+};
+
+type MarketEntry = {
+  team: Team;
+  seed: SquadSeed;
 };
 
 type Player = {
@@ -86,6 +145,11 @@ type Player = {
   stealTimer: number;
   stealHit: boolean;
   stumbleTimer: number;
+  overall: number;
+  pace: number;
+  shooting: number;
+  passing: number;
+  defending: number;
 };
 
 type Ball = {
@@ -156,6 +220,10 @@ type MatchState = {
   remaining: number;
   half: 1 | 2;
   homeAttacksRight: boolean;
+  homeFormation: FormationId;
+  awayFormation: FormationId;
+  homeTactic: TacticId;
+  awayTactic: TacticId;
   selectedId: number;
   selectedAwayId: number;
   gameMode: GameMode;
@@ -202,6 +270,8 @@ type Hud = {
   awayPlayerNumber: number;
   awayStamina: number;
   awayShotCharge: number;
+  playerOverall: number;
+  awayPlayerOverall: number;
   gameMode: GameMode;
 };
 
@@ -226,7 +296,7 @@ const FIELD_W = 100;
 const FIELD_H = 64;
 const GOAL_TOP = 24;
 const GOAL_BOTTOM = 40;
-const HALF_SECONDS = 180;
+const HALF_SECONDS = 55;
 
 const TEAMS: Team[] = [
   {
@@ -234,6 +304,7 @@ const TEAMS: Team[] = [
     name: "Flamengo",
     short: "FLA",
     city: "Brasileirão",
+    flag: "🇧🇷",
     primary: "#e32636",
     secondary: "#101010",
     rating: 89,
@@ -243,6 +314,7 @@ const TEAMS: Team[] = [
     name: "Real Madrid",
     short: "RMA",
     city: "Europa • Espanha",
+    flag: "🇪🇸",
     primary: "#f4f2f8",
     secondary: "#4f3b91",
     rating: 91,
@@ -252,6 +324,7 @@ const TEAMS: Team[] = [
     name: "Palmeiras",
     short: "PAL",
     city: "Brasileirão",
+    flag: "🇧🇷",
     primary: "#08783e",
     secondary: "#f4f5ef",
     rating: 88,
@@ -261,6 +334,7 @@ const TEAMS: Team[] = [
     name: "Barcelona",
     short: "BAR",
     city: "Europa • Espanha",
+    flag: "🇪🇸",
     primary: "#1e4591",
     secondary: "#a50044",
     rating: 90,
@@ -270,6 +344,7 @@ const TEAMS: Team[] = [
     name: "Corinthians",
     short: "COR",
     city: "Brasileirão",
+    flag: "🇧🇷",
     primary: "#f2f2f2",
     secondary: "#161616",
     rating: 86,
@@ -279,6 +354,7 @@ const TEAMS: Team[] = [
     name: "Manchester City",
     short: "MCI",
     city: "Europa • Inglaterra",
+    flag: "🏴󠁧󠁢󠁥󠁮󠁧󠁿",
     primary: "#72b9e6",
     secondary: "#17345c",
     rating: 90,
@@ -288,6 +364,7 @@ const TEAMS: Team[] = [
     name: "São Paulo",
     short: "SAO",
     city: "Brasileirão",
+    flag: "🇧🇷",
     primary: "#f4f4f4",
     secondary: "#d51f2b",
     rating: 86,
@@ -297,6 +374,7 @@ const TEAMS: Team[] = [
     name: "Liverpool",
     short: "LIV",
     city: "Europa • Inglaterra",
+    flag: "🏴󠁧󠁢󠁥󠁮󠁧󠁿",
     primary: "#c8102e",
     secondary: "#f0c75e",
     rating: 89,
@@ -306,6 +384,7 @@ const TEAMS: Team[] = [
     name: "Santos",
     short: "SAN",
     city: "Brasileirão",
+    flag: "🇧🇷",
     primary: "#f5f5f5",
     secondary: "#151515",
     rating: 84,
@@ -315,6 +394,7 @@ const TEAMS: Team[] = [
     name: "Arsenal",
     short: "ARS",
     city: "Europa • Inglaterra",
+    flag: "🏴󠁧󠁢󠁥󠁮󠁧󠁿",
     primary: "#db1831",
     secondary: "#f7f7f2",
     rating: 89,
@@ -324,6 +404,7 @@ const TEAMS: Team[] = [
     name: "Botafogo",
     short: "BOT",
     city: "Brasileirão",
+    flag: "🇧🇷",
     primary: "#121212",
     secondary: "#eeeeee",
     rating: 87,
@@ -333,6 +414,7 @@ const TEAMS: Team[] = [
     name: "Bayern de Munique",
     short: "BAY",
     city: "Europa • Alemanha",
+    flag: "🇩🇪",
     primary: "#dc143c",
     secondary: "#16366d",
     rating: 90,
@@ -342,6 +424,7 @@ const TEAMS: Team[] = [
     name: "Fluminense",
     short: "FLU",
     city: "Brasileirão",
+    flag: "🇧🇷",
     primary: "#7d1738",
     secondary: "#0d6848",
     rating: 85,
@@ -351,6 +434,7 @@ const TEAMS: Team[] = [
     name: "Paris Saint-Germain",
     short: "PSG",
     city: "Europa • França",
+    flag: "🇫🇷",
     primary: "#162953",
     secondary: "#d51f36",
     rating: 88,
@@ -360,6 +444,7 @@ const TEAMS: Team[] = [
     name: "Vasco da Gama",
     short: "VAS",
     city: "Brasileirão",
+    flag: "🇧🇷",
     primary: "#171717",
     secondary: "#eeeeee",
     rating: 84,
@@ -369,6 +454,7 @@ const TEAMS: Team[] = [
     name: "Inter de Milão",
     short: "INT",
     city: "Europa • Itália",
+    flag: "🇮🇹",
     primary: "#1855a5",
     secondary: "#101010",
     rating: 88,
@@ -378,6 +464,7 @@ const TEAMS: Team[] = [
     name: "Grêmio",
     short: "GRE",
     city: "Brasileirão",
+    flag: "🇧🇷",
     primary: "#3b9bd8",
     secondary: "#141a20",
     rating: 85,
@@ -387,6 +474,7 @@ const TEAMS: Team[] = [
     name: "AC Milan",
     short: "ACM",
     city: "Europa • Itália",
+    flag: "🇮🇹",
     primary: "#c0142b",
     secondary: "#111111",
     rating: 86,
@@ -396,6 +484,7 @@ const TEAMS: Team[] = [
     name: "Internacional",
     short: "SCI",
     city: "Brasileirão",
+    flag: "🇧🇷",
     primary: "#d71920",
     secondary: "#f3f3f3",
     rating: 85,
@@ -405,6 +494,7 @@ const TEAMS: Team[] = [
     name: "Juventus",
     short: "JUV",
     city: "Europa • Itália",
+    flag: "🇮🇹",
     primary: "#f1f1f1",
     secondary: "#111111",
     rating: 86,
@@ -414,6 +504,7 @@ const TEAMS: Team[] = [
     name: "Atlético Mineiro",
     short: "CAM",
     city: "Brasileirão",
+    flag: "🇧🇷",
     primary: "#171717",
     secondary: "#f1f1f1",
     rating: 87,
@@ -423,6 +514,7 @@ const TEAMS: Team[] = [
     name: "Chelsea",
     short: "CHE",
     city: "Europa • Inglaterra",
+    flag: "🏴󠁧󠁢󠁥󠁮󠁧󠁿",
     primary: "#034694",
     secondary: "#f2f4f8",
     rating: 87,
@@ -432,6 +524,7 @@ const TEAMS: Team[] = [
     name: "Cruzeiro",
     short: "CRU",
     city: "Brasileirão",
+    flag: "🇧🇷",
     primary: "#2245a4",
     secondary: "#f1f1f1",
     rating: 85,
@@ -441,52 +534,348 @@ const TEAMS: Team[] = [
     name: "Atlético de Madrid",
     short: "ATM",
     city: "Europa • Espanha",
+    flag: "🇪🇸",
     primary: "#d71932",
     secondary: "#17345f",
     rating: 88,
   },
 ];
 
-const HOME_FORMATION: Array<[Role, number, number, number]> = [
-  ["GK", 6, 32, 1],
-  ["DF", 19, 8, 2],
-  ["DF", 22, 24, 4],
-  ["DF", 22, 40, 3],
-  ["DF", 19, 56, 6],
-  ["MF", 33, 18, 5],
-  ["MF", 37, 32, 8],
-  ["MF", 33, 46, 11],
-  ["FW", 44, 12, 7],
-  ["FW", 45, 32, 10],
-  ["FW", 44, 52, 9],
-];
+// Elencos compactos para o formato 8×8. Os números e Over formam a base
+// dos atributos usados pelo motor; o mercado da carreira reutiliza estes dados.
+const ROSTERS: Record<string, SquadSeed[]> = {
+  flamengo: [
+    ["Rossi", 1, 84],
+    ["Léo Ortiz", 3, 84],
+    ["Alex Sandro", 26, 82],
+    ["Jorginho", 21, 84],
+    ["Arrascaeta", 10, 86],
+    ["Saúl", 8, 82],
+    ["Pedro", 9, 84],
+    ["Bruno Henrique", 27, 81],
+  ],
+  "real-madrid": [
+    ["Courtois", 1, 90],
+    ["Éder Militão", 3, 84],
+    ["Rüdiger", 22, 83],
+    ["Valverde", 8, 87],
+    ["Bellingham", 5, 90],
+    ["Arda Güler", 15, 83],
+    ["Vini Jr.", 7, 89],
+    ["Mbappé", 10, 91],
+  ],
+  palmeiras: [
+    ["Weverton", 21, 82],
+    ["Gustavo Gómez", 15, 83],
+    ["Piquerez", 22, 80],
+    ["Aníbal Moreno", 5, 80],
+    ["Raphael Veiga", 23, 82],
+    ["Andreas Pereira", 8, 82],
+    ["Felipe Anderson", 7, 80],
+    ["Vitor Roque", 9, 82],
+  ],
+  barcelona: [
+    ["Joan García", 13, 86],
+    ["Pau Cubarsí", 5, 86],
+    ["Jules Koundé", 23, 85],
+    ["Frenkie de Jong", 21, 86],
+    ["Pedri", 8, 90],
+    ["Dani Olmo", 20, 84],
+    ["Raphinha", 11, 88],
+    ["Lamine Yamal", 10, 90],
+  ],
+  corinthians: [
+    ["Hugo Souza", 1, 79],
+    ["André Ramalho", 5, 78],
+    ["Matheuzinho", 2, 77],
+    ["Raniele", 14, 77],
+    ["Breno Bidon", 27, 78],
+    ["Rodrigo Garro", 8, 81],
+    ["Memphis", 10, 82],
+    ["Yuri Alberto", 9, 80],
+  ],
+  "manchester-city": [
+    ["Donnarumma", 25, 89],
+    ["Rúben Dias", 3, 88],
+    ["Gvardiol", 24, 86],
+    ["Rodri", 16, 90],
+    ["Reijnders", 4, 86],
+    ["Bernardo Silva", 20, 84],
+    ["Jérémy Doku", 11, 84],
+    ["Haaland", 9, 91],
+  ],
+  "sao-paulo": [
+    ["Rafael", 23, 79],
+    ["Arboleda", 5, 78],
+    ["Alan Franco", 28, 77],
+    ["Marcos Antônio", 20, 79],
+    ["Alisson", 25, 77],
+    ["Lucas Moura", 7, 81],
+    ["Luciano", 10, 79],
+    ["Calleri", 9, 79],
+  ],
+  liverpool: [
+    ["Alisson", 1, 89],
+    ["Van Dijk", 4, 89],
+    ["Konaté", 5, 84],
+    ["Mac Allister", 10, 86],
+    ["Szoboszlai", 8, 85],
+    ["Florian Wirtz", 7, 88],
+    ["Mohamed Salah", 11, 90],
+    ["Alexander Isak", 9, 88],
+  ],
+  santos: [
+    ["Gabriel Brazão", 77, 77],
+    ["Mayke", 2, 78],
+    ["Zé Ivaldo", 26, 76],
+    ["João Schmidt", 5, 76],
+    ["Rollheiser", 32, 77],
+    ["Neymar", 10, 84],
+    ["Guilherme", 11, 77],
+    ["Tiquinho", 9, 78],
+  ],
+  arsenal: [
+    ["David Raya", 22, 88],
+    ["Gabriel", 6, 89],
+    ["William Saliba", 2, 88],
+    ["Declan Rice", 41, 88],
+    ["Ødegaard", 8, 86],
+    ["Eberechi Eze", 10, 84],
+    ["Bukayo Saka", 7, 87],
+    ["Viktor Gyökeres", 14, 86],
+  ],
+  botafogo: [
+    ["Neto", 12, 79],
+    ["Barboza", 20, 79],
+    ["Alex Telles", 13, 79],
+    ["Marlon Freitas", 17, 79],
+    ["Danilo", 35, 82],
+    ["Álvaro Montoro", 8, 78],
+    ["Savarino", 10, 80],
+    ["Arthur Cabral", 9, 79],
+  ],
+  bayern: [
+    ["Neuer", 1, 84],
+    ["Upamecano", 2, 84],
+    ["Jonathan Tah", 4, 86],
+    ["Kimmich", 6, 88],
+    ["Musiala", 10, 89],
+    ["Michael Olise", 17, 88],
+    ["Luis Díaz", 14, 86],
+    ["Harry Kane", 9, 90],
+  ],
+  fluminense: [
+    ["Fábio", 1, 78],
+    ["Thiago Silva", 3, 83],
+    ["Renê", 6, 76],
+    ["Martinelli", 8, 78],
+    ["Hércules", 35, 78],
+    ["Ganso", 10, 80],
+    ["Canobbio", 17, 78],
+    ["Germán Cano", 14, 80],
+  ],
+  psg: [
+    ["Safonov", 39, 83],
+    ["Willian Pacho", 51, 89],
+    ["Marquinhos", 5, 87],
+    ["João Neves", 87, 88],
+    ["Vitinha", 17, 90],
+    ["Kvaratskhelia", 7, 89],
+    ["Dembélé", 10, 90],
+    ["Barcola", 29, 85],
+  ],
+  vasco: [
+    ["Léo Jardim", 1, 79],
+    ["Carlos Cuesta", 13, 79],
+    ["Lucas Piton", 6, 78],
+    ["Hugo Moura", 25, 76],
+    ["Coutinho", 10, 80],
+    ["Nuno Moreira", 17, 77],
+    ["Rayan", 77, 80],
+    ["Vegetti", 99, 80],
+  ],
+  "inter-milan": [
+    ["Sommer", 1, 86],
+    ["Bastoni", 95, 88],
+    ["Akanji", 25, 86],
+    ["Barella", 23, 87],
+    ["Çalhanoğlu", 20, 86],
+    ["Mkhitaryan", 22, 82],
+    ["Lautaro", 10, 89],
+    ["Marcus Thuram", 9, 86],
+  ],
+  gremio: [
+    ["Tiago Volpi", 1, 76],
+    ["Kannemann", 4, 77],
+    ["Marlon", 23, 77],
+    ["Dodi", 17, 75],
+    ["Edenilson", 15, 76],
+    ["Cristaldo", 10, 78],
+    ["Alysson", 47, 75],
+    ["Braithwaite", 22, 79],
+  ],
+  milan: [
+    ["Maignan", 16, 87],
+    ["Tomori", 23, 82],
+    ["Pavlović", 31, 80],
+    ["Modrić", 14, 86],
+    ["Samuele Ricci", 4, 80],
+    ["Pulisic", 11, 85],
+    ["Rafael Leão", 10, 86],
+    ["Santiago Giménez", 7, 82],
+  ],
+  internacional: [
+    ["Rochet", 1, 78],
+    ["Vitão", 4, 79],
+    ["Bernabei", 26, 78],
+    ["Thiago Maia", 29, 77],
+    ["Bruno Henrique", 8, 76],
+    ["Alan Patrick", 10, 81],
+    ["Carbonero", 7, 78],
+    ["Borré", 19, 80],
+  ],
+  juventus: [
+    ["Di Gregorio", 29, 84],
+    ["Bremer", 3, 86],
+    ["Federico Gatti", 4, 80],
+    ["Locatelli", 5, 83],
+    ["Khéphren Thuram", 19, 82],
+    ["Koopmeiners", 8, 83],
+    ["Kenan Yıldız", 10, 86],
+    ["Jonathan David", 30, 84],
+  ],
+  "atletico-mg": [
+    ["Everson", 22, 80],
+    ["Lyanco", 4, 79],
+    ["Guilherme Arana", 13, 81],
+    ["Alan Franco", 23, 77],
+    ["Gustavo Scarpa", 10, 80],
+    ["Bernard", 20, 77],
+    ["Hulk", 7, 83],
+    ["Rony", 33, 79],
+  ],
+  chelsea: [
+    ["Robert Sánchez", 1, 82],
+    ["Reece James", 24, 84],
+    ["Levi Colwill", 6, 82],
+    ["Moisés Caicedo", 25, 87],
+    ["Enzo Fernández", 8, 85],
+    ["Cole Palmer", 10, 88],
+    ["Pedro Neto", 7, 84],
+    ["João Pedro", 20, 84],
+  ],
+  cruzeiro: [
+    ["Cássio", 1, 79],
+    ["Fabrício Bruno", 15, 80],
+    ["Kaiki", 6, 77],
+    ["Lucas Romero", 29, 78],
+    ["Lucas Silva", 16, 77],
+    ["Matheus Pereira", 10, 82],
+    ["Kaio Jorge", 19, 82],
+    ["Gabigol", 9, 81],
+  ],
+  "atletico-madrid": [
+    ["Oblak", 13, 89],
+    ["José Giménez", 2, 84],
+    ["Dávid Hancko", 17, 84],
+    ["Marcos Llorente", 14, 84],
+    ["Pablo Barrios", 8, 83],
+    ["Thiago Almada", 11, 84],
+    ["Julián Álvarez", 19, 89],
+    ["Sørloth", 9, 84],
+  ],
+};
 
-const NAMES = [
-  "Muralha",
-  "Caio",
-  "Breno",
-  "Davi",
-  "Renan",
-  "Lucas",
-  "Matheus",
-  "Rafa",
-  "Gabriel",
-  "Stadler",
-  "Pedro",
-];
-const RIVAL_NAMES = [
-  "Atlas",
-  "Léo",
-  "Nico",
-  "Kai",
-  "Noah",
-  "Milo",
-  "Enzo",
-  "Theo",
-  "Gael",
-  "Luca",
-  "Ian",
-];
+const FORMATIONS: Record<FormationId, FormationDefinition> = {
+  "2-3-2": {
+    id: "2-3-2",
+    label: "2-3-2",
+    description: "Equilíbrio e amplitude",
+    slots: [
+      ["GK", 6, 32],
+      ["DF", 22, 20],
+      ["DF", 22, 44],
+      ["MF", 34, 11],
+      ["MF", 36, 32],
+      ["MF", 34, 53],
+      ["FW", 45, 24],
+      ["FW", 45, 42],
+    ],
+  },
+  "3-2-2": {
+    id: "3-2-2",
+    label: "3-2-2",
+    description: "Bloco forte e seguro",
+    slots: [
+      ["GK", 6, 32],
+      ["DF", 20, 12],
+      ["DF", 23, 32],
+      ["DF", 20, 52],
+      ["MF", 35, 21],
+      ["MF", 35, 43],
+      ["FW", 45, 24],
+      ["FW", 45, 42],
+    ],
+  },
+  "2-2-3": {
+    id: "2-2-3",
+    label: "2-2-3",
+    description: "Ataque com três opções",
+    slots: [
+      ["GK", 6, 32],
+      ["DF", 21, 21],
+      ["DF", 21, 43],
+      ["MF", 34, 21],
+      ["MF", 34, 43],
+      ["FW", 44, 10],
+      ["FW", 46, 32],
+      ["FW", 44, 54],
+    ],
+  },
+};
+
+const TACTICS: Record<TacticId, TacticDefinition> = {
+  balanced: {
+    id: "balanced",
+    label: "Equilibrado",
+    description: "Linhas compactas",
+    line: 0,
+    width: 1,
+    pressure: 1,
+    forwardRuns: 6,
+    tempo: 1,
+  },
+  attacking: {
+    id: "attacking",
+    label: "Ofensivo",
+    description: "Pressão e linha alta",
+    line: 7,
+    width: 1.12,
+    pressure: 1.17,
+    forwardRuns: 11,
+    tempo: 1.08,
+  },
+  defensive: {
+    id: "defensive",
+    label: "Defensivo",
+    description: "Bloco baixo e compacto",
+    line: -7,
+    width: 0.82,
+    pressure: 0.88,
+    forwardRuns: 3,
+    tempo: 0.94,
+  },
+  counter: {
+    id: "counter",
+    label: "Contra-ataque",
+    description: "Recupera e acelera",
+    line: -3,
+    width: 1.06,
+    pressure: 0.96,
+    forwardRuns: 13,
+    tempo: 1.13,
+  },
+};
 const HORIZONTAL_KITS = new Set(["flamengo"]);
 const VERTICAL_KITS = new Set([
   "barcelona",
@@ -531,17 +920,102 @@ function random(state: MatchState) {
   return state.rng / 4294967296;
 }
 
-function buildPlayers(): Player[] {
+function seedFromName(name: string) {
+  return [...name].reduce(
+    (hash, character) => (hash * 31 + character.charCodeAt(0)) >>> 0,
+    2166136261,
+  );
+}
+
+function attributeProfile(seed: SquadSeed, role: Role) {
+  const [name, , overall] = seed;
+  const hash = seedFromName(name);
+  const variation = (offset: number) => ((hash >> offset) % 7) - 3;
+  const roleBias = {
+    GK: { pace: -12, shooting: -28, passing: -4, defending: 8 },
+    DF: { pace: -1, shooting: -11, passing: -2, defending: 8 },
+    MF: { pace: 1, shooting: 1, passing: 7, defending: 0 },
+    FW: { pace: 6, shooting: 8, passing: 1, defending: -14 },
+  }[role];
+  return {
+    pace: Math.round(clamp(overall + roleBias.pace + variation(2), 52, 96)),
+    shooting: Math.round(
+      clamp(overall + roleBias.shooting + variation(5), 40, 96),
+    ),
+    passing: Math.round(
+      clamp(overall + roleBias.passing + variation(8), 48, 96),
+    ),
+    defending: Math.round(
+      clamp(overall + roleBias.defending + variation(11), 38, 96),
+    ),
+  };
+}
+
+function playerAttributeFactor(attribute: number) {
+  return clamp(0.84 + (attribute - 60) * 0.007, 0.84, 1.18);
+}
+
+function rosterFor(team: Team, override?: SquadSeed[]) {
+  if (override?.length) return override;
+  return (
+    ROSTERS[team.id] ??
+    Array.from(
+      { length: 8 },
+      (_, index) =>
+        [`${team.short} ${index + 1}`, index + 1, team.rating] as SquadSeed,
+    )
+  );
+}
+
+function lineupFor(squad: SquadSeed[], formation: FormationDefinition) {
+  const candidates = squad.map((seed, index) => ({
+    seed,
+    role: seed[3] ?? FORMATIONS["2-3-2"].slots[index]?.[0] ?? "MF",
+    used: false,
+  }));
+  return formation.slots.map(([role]) => {
+    const exact = candidates
+      .filter((candidate) => !candidate.used && candidate.role === role)
+      .sort((a, b) => b.seed[2] - a.seed[2])[0];
+    const fallback = candidates
+      .filter((candidate) => !candidate.used)
+      .sort((a, b) => b.seed[2] - a.seed[2])[0];
+    const selected = exact ?? fallback;
+    if (!selected) return ["Reserva", 0, 60, role] as SquadSeed;
+    selected.used = true;
+    return selected.seed;
+  });
+}
+
+function buildPlayers(
+  homeTeam: Team,
+  awayTeam: Team,
+  homeFormation: FormationId,
+  awayFormation: FormationId,
+  homeSquad?: SquadSeed[],
+): Player[] {
   const players: Player[] = [];
   let id = 1;
   for (const side of ["home", "away"] as Side[]) {
-    HOME_FORMATION.forEach(([role, x, y, number], index) => {
+    const team = side === "home" ? homeTeam : awayTeam;
+    const formation =
+      FORMATIONS[side === "home" ? homeFormation : awayFormation];
+    const squad = lineupFor(
+      rosterFor(team, side === "home" ? homeSquad : undefined),
+      formation,
+    );
+    formation.slots.forEach(([role, x, y], index) => {
+      const seed =
+        squad[index] ??
+        ([`${team.short} ${index + 1}`, index + 1, team.rating] as SquadSeed);
+      const [name, number, overall] = seed;
+      const attributes = attributeProfile(seed, role);
       const px = side === "home" ? x : FIELD_W - x;
       players.push({
         id: id++,
         side,
         role,
-        name: side === "home" ? NAMES[index] : RIVAL_NAMES[index],
+        name,
         number,
         x: px,
         y,
@@ -567,6 +1041,11 @@ function buildPlayers(): Player[] {
         stealTimer: 0,
         stealHit: false,
         stumbleTimer: 0,
+        overall,
+        pace: attributes.pace,
+        shooting: attributes.shooting,
+        passing: attributes.passing,
+        defending: attributes.defending,
       });
     });
   }
@@ -579,9 +1058,20 @@ function createMatch(
   difficulty: Difficulty,
   demo = false,
   gameMode: GameMode = "solo",
+  homeFormation: FormationId = "2-3-2",
+  awayFormation: FormationId = "2-3-2",
+  homeTactic: TacticId = "balanced",
+  awayTactic: TacticId = "balanced",
+  homeSquad?: SquadSeed[],
 ): MatchState {
   const state: MatchState = {
-    players: buildPlayers(),
+    players: buildPlayers(
+      homeTeam,
+      awayTeam,
+      homeFormation,
+      awayFormation,
+      homeSquad,
+    ),
     ball: {
       x: 50,
       y: 32,
@@ -602,8 +1092,12 @@ function createMatch(
     remaining: HALF_SECONDS,
     half: 1,
     homeAttacksRight: true,
-    selectedId: 10,
-    selectedAwayId: 21,
+    homeFormation,
+    awayFormation,
+    homeTactic,
+    awayTactic,
+    selectedId: 7,
+    selectedAwayId: 15,
     gameMode,
     paused: false,
     finished: false,
@@ -688,8 +1182,22 @@ function attackingSideAtGoalLine(state: MatchState, rightGoal: boolean): Side {
 }
 
 function teamAbility(state: MatchState, side: Side) {
-  const rating = side === "home" ? state.homeTeam.rating : state.awayTeam.rating;
+  const rating =
+    side === "home" ? state.homeTeam.rating : state.awayTeam.rating;
   return clamp(0.95 + (rating - 84) * 0.012, 0.95, 1.04);
+}
+
+function bestKickoffPlayer(state: MatchState, side: Side) {
+  return state.players
+    .filter(
+      (player) =>
+        player.side === side && player.role !== "GK" && !player.sentOff,
+    )
+    .sort((a, b) => {
+      const aPriority = (a.role === "FW" ? 16 : 0) + a.overall;
+      const bPriority = (b.role === "FW" ? 16 : 0) + b.overall;
+      return bPriority - aPriority;
+    })[0];
 }
 
 function resetPositions(state: MatchState, kickoffSide: Side) {
@@ -718,18 +1226,7 @@ function resetPositions(state: MatchState, kickoffSide: Side) {
   state.ball.vy = 0;
   state.ball.z = 0.12;
   state.ball.vz = 0;
-  const kickoffPlayer =
-    state.players.find(
-      (player) =>
-        player.side === kickoffSide &&
-        player.role !== "GK" &&
-        !player.sentOff &&
-        player.number === 10,
-    ) ??
-    state.players.find(
-      (player) =>
-        player.side === kickoffSide && player.role !== "GK" && !player.sentOff,
-    );
+  const kickoffPlayer = bestKickoffPlayer(state, kickoffSide);
   if (kickoffPlayer) {
     const kickoffDirection = attackDirectionFor(state, kickoffSide);
     kickoffPlayer.x = 50 - kickoffDirection * 1.34;
@@ -743,42 +1240,20 @@ function resetPositions(state: MatchState, kickoffSide: Side) {
   state.ball.lastTouch = kickoffSide;
   const nextSelected =
     (kickoffSide === "home" ? kickoffPlayer : undefined) ??
-    state.players.find(
-      (player) =>
-        player.side === "home" &&
-        player.role !== "GK" &&
-        player.number === 10 &&
-        !player.sentOff,
-    ) ??
-    state.players.find(
-      (player) =>
-        player.side === "home" && player.role !== "GK" && !player.sentOff,
-    );
+    bestKickoffPlayer(state, "home");
   state.selectedId =
     nextSelected?.id ??
-    state.players.find(
-      (player) => player.side === "home" && !player.sentOff,
-    )?.id ??
+    state.players.find((player) => player.side === "home" && !player.sentOff)
+      ?.id ??
     1;
   const nextAwaySelected =
     (kickoffSide === "away" ? kickoffPlayer : undefined) ??
-    state.players.find(
-      (player) =>
-        player.side === "away" &&
-        player.role !== "GK" &&
-        player.number === 10 &&
-        !player.sentOff,
-    ) ??
-    state.players.find(
-      (player) =>
-        player.side === "away" && player.role !== "GK" && !player.sentOff,
-    );
+    bestKickoffPlayer(state, "away");
   state.selectedAwayId =
     nextAwaySelected?.id ??
-    state.players.find(
-      (player) => player.side === "away" && !player.sentOff,
-    )?.id ??
-    12;
+    state.players.find((player) => player.side === "away" && !player.sentOff)
+      ?.id ??
+    9;
   state.frozen = 1.45;
   state.setPiece = null;
   state.trail = [];
@@ -842,9 +1317,12 @@ function kickBall(
       const keeperTeam =
         opposingKeeper.side === "home" ? state.homeTeam : state.awayTeam;
       opposingKeeper.keeperReactionTimer = clamp(
-        0.18 - (keeperTeam.rating - 80) * 0.006 + (random(state) - 0.5) * 0.035,
-        0.065,
-        0.18,
+        0.22 -
+          (keeperTeam.rating - 80) * 0.0035 -
+          (opposingKeeper.overall - 80) * 0.002 +
+          (random(state) - 0.5) * 0.045,
+        0.11,
+        0.24,
       );
       opposingKeeper.keeperCommitTimer = 0;
     }
@@ -879,12 +1357,8 @@ function isOffsidePosition(
   if (!inOpponentHalf || !aheadOfBall) return false;
 
   const defenders = state.players
-    .filter(
-      (candidate) => candidate.side !== passer.side && !candidate.sentOff,
-    )
-    .sort((a, b) =>
-      direction > 0 ? b.x - a.x : a.x - b.x,
-    );
+    .filter((candidate) => candidate.side !== passer.side && !candidate.sentOff)
+    .sort((a, b) => (direction > 0 ? b.x - a.x : a.x - b.x));
   const secondLastDefender = defenders[Math.min(1, defenders.length - 1)];
   if (!secondLastDefender) return false;
   return direction > 0
@@ -906,6 +1380,8 @@ function awardOffside(state: MatchState, attacker: Player, receiver: Player) {
 }
 
 function choosePassTarget(state: MatchState, player: Player) {
+  const tactic =
+    TACTICS[player.side === "home" ? state.homeTactic : state.awayTactic];
   const teammates = state.players.filter(
     (candidate) =>
       candidate.side === player.side &&
@@ -920,7 +1396,8 @@ function choosePassTarget(state: MatchState, player: Player) {
     const dy = candidate.y - player.y;
     const dist = Math.hypot(dx, dy);
     const forward = dx * attackDirectionFor(state, player.side);
-    const facing = (dx * player.facingX + dy * player.facingY) / Math.max(1, dist);
+    const facing =
+      (dx * player.facingX + dy * player.facingY) / Math.max(1, dist);
     const opponents = state.players.filter(
       (opponent) => opponent.side !== player.side && !opponent.sentOff,
     );
@@ -939,11 +1416,12 @@ function choosePassTarget(state: MatchState, player: Player) {
           player.y,
           candidate.x,
           candidate.y,
-        ) < 2.2 &&
-        distance(player.x, player.y, opponent.x, opponent.y) < dist,
+        ) < 2.2 && distance(player.x, player.y, opponent.x, opponent.y) < dist,
     );
+    const forwardWeight =
+      tactic.id === "counter" ? 0.92 : tactic.id === "attacking" ? 0.78 : 0.65;
     const score =
-      forward * 0.65 +
+      forward * forwardWeight +
       facing * 14 -
       Math.abs(dist - 20) * 0.45 +
       receivingSpace * 1.1 -
@@ -982,15 +1460,14 @@ function passBall(state: MatchState, side: Side = "home") {
     owner,
     target.x + target.vx * lead,
     target.y + target.vy * lead,
-    31 * teamAbility(state, side),
+    31 * teamAbility(state, side) * playerAttributeFactor(owner.passing),
     "pass",
   );
 }
 
 function releaseShot(state: MatchState, side: Side = "home") {
   const owner = getPlayer(state, state.ball.owner);
-  const charge =
-    side === "home" ? state.shotCharge : state.awayShotCharge;
+  const charge = side === "home" ? state.shotCharge : state.awayShotCharge;
   if (
     !owner ||
     owner.side !== side ||
@@ -1014,7 +1491,8 @@ function releaseShot(state: MatchState, side: Side = "home") {
   );
   const power =
     (placed ? 45 : powerful ? 63 : 51 + charge * 8) *
-    teamAbility(state, side);
+    teamAbility(state, side) *
+    playerAttributeFactor(owner.shooting);
   state.lastShotStyle = placed
     ? "CHUTE COLOCADO"
     : powerful
@@ -1110,8 +1588,7 @@ function startSetPiece(
     )
     .sort(
       (a, b) =>
-        distance(a.x, a.y, spotX, spotY) -
-        distance(b.x, b.y, spotX, spotY),
+        distance(a.x, a.y, spotX, spotY) - distance(b.x, b.y, spotX, spotY),
     );
   const taker =
     candidates[0] ??
@@ -1179,8 +1656,7 @@ function startSetPiece(
       .filter((player) => player.side !== side && player.role !== "GK")
       .sort(
         (a, b) =>
-          distance(a.x, a.y, spotX, spotY) -
-          distance(b.x, b.y, spotX, spotY),
+          distance(a.x, a.y, spotX, spotY) - distance(b.x, b.y, spotX, spotY),
       )
       .slice(0, 3);
     wall.forEach((player, index) => {
@@ -1197,13 +1673,11 @@ function startSetPiece(
       (player) => player.side !== side && player.role !== "GK",
     );
     attackers.forEach((player, index) => {
-      player.x =
-        targetGoalX - attackDirection * (18 - (index % 2) * 5);
+      player.x = targetGoalX - attackDirection * (18 - (index % 2) * 5);
       player.y = 20 + (index % 5) * 6;
     });
     defenders.forEach((player, index) => {
-      player.x =
-        targetGoalX - attackDirection * (15 - (index % 2) * 4);
+      player.x = targetGoalX - attackDirection * (15 - (index % 2) * 4);
       player.y = 21 + (index % 5) * 5.8;
     });
   } else if (kind === "throwIn") {
@@ -1214,19 +1688,16 @@ function startSetPiece(
         const dy = player.y - spotY;
         const currentDistance = Math.hypot(dx, dy);
         if (currentDistance >= 3.6) return;
-        const nx = currentDistance > 0.01 ? dx / currentDistance : -attackDirection;
+        const nx =
+          currentDistance > 0.01 ? dx / currentDistance : -attackDirection;
         const ny =
-          currentDistance > 0.01 ? dy / currentDistance : spotY < FIELD_H / 2 ? 1 : -1;
-        player.x = clamp(
-          spotX + nx * 3.6,
-          3,
-          FIELD_W - 3,
-        );
-        player.y = clamp(
-          spotY + ny * 3.6,
-          3,
-          FIELD_H - 3,
-        );
+          currentDistance > 0.01
+            ? dy / currentDistance
+            : spotY < FIELD_H / 2
+              ? 1
+              : -1;
+        player.x = clamp(spotX + nx * 3.6, 3, FIELD_W - 3);
+        player.y = clamp(spotY + ny * 3.6, 3, FIELD_H - 3);
       });
   }
 
@@ -1277,8 +1748,7 @@ function executeSetPiece(state: MatchState, action: "pass" | "shot") {
   } else if (piece.kind === "corner") {
     if (action === "shot") {
       targetX = goalX;
-      targetY =
-        piece.spotY < 32 ? GOAL_TOP + 2.3 : GOAL_BOTTOM - 2.3;
+      targetY = piece.spotY < 32 ? GOAL_TOP + 2.3 : GOAL_BOTTOM - 2.3;
       power = 43;
       kickKind = "shot";
       state.lastShotStyle = "GOL OLÍMPICO";
@@ -1293,7 +1763,8 @@ function executeSetPiece(state: MatchState, action: "pass" | "shot") {
   } else if (piece.kind === "throwIn") {
     const target = choosePassTarget(state, taker);
     targetX = target?.x ?? piece.spotX + attackDirection * 10;
-    targetY = target?.y ?? clamp(piece.spotY + (piece.spotY < 32 ? 8 : -8), 5, 59);
+    targetY =
+      target?.y ?? clamp(piece.spotY + (piece.spotY < 32 ? 8 : -8), 5, 59);
     power = 25;
     kickKind = "pass";
     lift = 6.5;
@@ -1324,9 +1795,7 @@ function executeSetPiece(state: MatchState, action: "pass" | "shot") {
   state.ball.x = piece.spotX;
   state.ball.y = piece.spotY;
   if (piece.kind === "freeKick" || piece.kind === "corner") {
-    state.ball.spin =
-      attackDirection *
-      (piece.spotY < 32 ? 7 : -7);
+    state.ball.spin = attackDirection * (piece.spotY < 32 ? 7 : -7);
   }
   state.shotCharge = 0;
   state.chargingShot = false;
@@ -1361,9 +1830,7 @@ function commitFoul(
         Math.abs(attackingGoal - candidate.x) < victimGoalDistance + 1.5,
     ).length;
     const lastDefenderFoul =
-      victimGoalDistance < 27 &&
-      coveringDefenders <= 1 &&
-      victim.role === "FW";
+      victimGoalDistance < 27 && coveringDefenders <= 1 && victim.role === "FW";
     const impactSpeed = Math.hypot(
       offender.vx - victim.vx,
       offender.vy - victim.vy,
@@ -1408,7 +1875,11 @@ function commitFoul(
 
   if (offender.sentOff) {
     const replacement = nearestPlayer(state, offender.side);
-    if (offender.side === "home" && state.selectedId === offender.id && replacement) {
+    if (
+      offender.side === "home" &&
+      state.selectedId === offender.id &&
+      replacement
+    ) {
       state.selectedId = replacement.id;
     }
     if (
@@ -1432,7 +1903,11 @@ function switchToClosestPlayer(state: MatchState, side: Side) {
   ) {
     if (side === "home") state.selectedId = ballOwner.id;
     else state.selectedAwayId = ballOwner.id;
-    setMessage(state, side === "home" ? "J1 • COM A BOLA" : "J2 • COM A BOLA", 0.32);
+    setMessage(
+      state,
+      side === "home" ? "J1 • COM A BOLA" : "J2 • COM A BOLA",
+      0.32,
+    );
     return;
   }
   const opponentOwner = ballOwner && ballOwner.side !== side ? ballOwner : null;
@@ -1447,18 +1922,16 @@ function switchToClosestPlayer(state: MatchState, side: Side) {
         !player.sentOff &&
         player.id !== currentId,
     )
-    .sort(
-      (a, b) => {
-        const score = (player: Player) => {
-          const ballDistance = distance(player.x, player.y, targetX, targetY);
-          const goalSide =
-            distance(player.x, player.y, ownGoalX, 32) <
-            distance(targetX, targetY, ownGoalX, 32);
-          return ballDistance - (goalSide ? 0.65 : 0);
-        };
-        return score(a) - score(b);
-      },
-    );
+    .sort((a, b) => {
+      const score = (player: Player) => {
+        const ballDistance = distance(player.x, player.y, targetX, targetY);
+        const goalSide =
+          distance(player.x, player.y, ownGoalX, 32) <
+          distance(targetX, targetY, ownGoalX, 32);
+        return ballDistance - (goalSide ? 0.65 : 0);
+      };
+      return score(a) - score(b);
+    });
   const next = outfield[0];
   if (!next) return;
   if (side === "home") state.selectedId = next.id;
@@ -1487,7 +1960,8 @@ function stealBall(state: MatchState, side: Side = "home") {
   const opponentOwner = getPlayer(state, state.ball.owner);
   if (opponentOwner?.side === side) return;
 
-  const target = opponentOwner ?? (state.ball.owner === null ? state.ball : null);
+  const target =
+    opponentOwner ?? (state.ball.owner === null ? state.ball : null);
   if (!target) return;
   const targetDistance = distance(selected.x, selected.y, target.x, target.y);
   const maximumReach = opponentOwner ? 4.85 : 4.4;
@@ -1602,13 +2076,16 @@ function resolvePlayerCollisions(state: MatchState) {
   const active = state.players.filter((player) => !player.sentOff);
   for (let firstIndex = 0; firstIndex < active.length; firstIndex += 1) {
     const first = active[firstIndex];
-    for (let secondIndex = firstIndex + 1; secondIndex < active.length; secondIndex += 1) {
+    for (
+      let secondIndex = firstIndex + 1;
+      secondIndex < active.length;
+      secondIndex += 1
+    ) {
       const second = active[secondIndex];
       let dx = second.x - first.x;
       let dy = second.y - first.y;
       let separation = Math.hypot(dx, dy);
-      const minimum =
-        first.role === "GK" || second.role === "GK" ? 1.55 : 1.42;
+      const minimum = first.role === "GK" || second.role === "GK" ? 1.55 : 1.42;
       if (separation >= minimum) continue;
       if (separation < 0.01) {
         dx = first.id % 2 === 0 ? 1 : -1;
@@ -1640,8 +2117,7 @@ function resolvePlayerCollisions(state: MatchState) {
 
 function resolveStealAttempts(state: MatchState, demo: boolean) {
   const stealers = state.players.filter(
-    (player) =>
-      player.stealTimer > 0 && !player.stealHit && !player.sentOff,
+    (player) => player.stealTimer > 0 && !player.stealHit && !player.sentOff,
   );
   for (const stealer of stealers) {
     if (state.ball.owner === null) {
@@ -1678,7 +2154,8 @@ function resolveStealAttempts(state: MatchState, demo: boolean) {
     }
 
     const carrier = getPlayer(state, state.ball.owner);
-    if (!carrier || carrier.side === stealer.side || carrier.role === "GK") continue;
+    if (!carrier || carrier.side === stealer.side || carrier.role === "GK")
+      continue;
     const dx = carrier.x - stealer.x;
     const dy = carrier.y - stealer.y;
     const contactDistance = Math.hypot(dx, dy);
@@ -1698,18 +2175,23 @@ function resolveStealAttempts(state: MatchState, demo: boolean) {
         carrierToStealerY * carrier.facingY) /
         Math.max(0.001, contactDistance) <
       -0.24;
-    const fromSide = !fromBehind && Math.abs(
-      (carrierToStealerX * carrier.facingX +
-        carrierToStealerY * carrier.facingY) /
-        Math.max(0.001, contactDistance),
-    ) < 0.42;
+    const fromSide =
+      !fromBehind &&
+      Math.abs(
+        (carrierToStealerX * carrier.facingX +
+          carrierToStealerY * carrier.facingY) /
+          Math.max(0.001, contactDistance),
+      ) < 0.42;
     const shieldPenalty = carrier.controlShield > 0 ? 0.22 : 0;
+    const duelAdvantage =
+      (stealer.defending - Math.max(carrier.overall, carrier.pace)) * 0.008;
     const cleanChance = clamp(
       0.62 +
         Math.max(0, alignment) * 0.2 +
         Math.min(12, closingSpeed) * 0.009 -
         shieldPenalty -
-        (fromBehind ? 0.24 : fromSide ? 0.05 : 0),
+        (fromBehind ? 0.24 : fromSide ? 0.05 : 0) +
+        duelAdvantage,
       0.24,
       0.94,
     );
@@ -1730,7 +2212,11 @@ function resolveStealAttempts(state: MatchState, demo: boolean) {
       carrier.vy *= 0.45;
       state.cameraShake = Math.max(state.cameraShake, 0.28);
       state.impactFlash = Math.max(state.impactFlash, 0.1);
-      setMessage(state, fromSide ? "DESARME NO TEMPO CERTO" : "BOTE LIMPO!", 0.62);
+      setMessage(
+        state,
+        fromSide ? "DESARME NO TEMPO CERTO" : "BOTE LIMPO!",
+        0.62,
+      );
       if (stealer.side === "home") state.selectedId = stealer.id;
       else if (state.gameMode === "local2p") state.selectedAwayId = stealer.id;
       continue;
@@ -1770,15 +2256,16 @@ function resolveKeeperSmothers(state: MatchState, demo: boolean) {
   keeper.tackleCooldown = 0.58;
   const facingCarrier =
     keeper.facingX * (carrier.x - keeper.x) +
-    keeper.facingY * (carrier.y - keeper.y) >
+      keeper.facingY * (carrier.y - keeper.y) >
     0;
   const smotherChance = clamp(
-    0.82 +
+    0.74 +
       (keeper.keeperDiveTimer > 0 ? 0.1 : 0) +
       (facingCarrier ? 0.04 : -0.05) -
-      (carrier.controlShield > 0 ? 0.13 : 0),
-    0.58,
-    0.96,
+      (carrier.controlShield > 0 ? 0.13 : 0) +
+      (keeper.overall - carrier.overall) * 0.006,
+    0.5,
+    0.89,
   );
 
   if (demo || random(state) < smotherChance) {
@@ -1867,14 +2354,14 @@ function resolveSlideTackles(state: MatchState, demo: boolean) {
       Math.hypot(victimToSliderX, victimToSliderY),
     );
     const fromBehind =
-      (victimToSliderX * victim.facingX +
-        victimToSliderY * victim.facingY) /
+      (victimToSliderX * victim.facingX + victimToSliderY * victim.facingY) /
         contactDistance <
       -0.28;
     const cleanChance = clamp(
       0.78 -
         (fromBehind ? 0.34 : 0) -
-        (victim.controlShield > 0 ? 0.17 : 0),
+        (victim.controlShield > 0 ? 0.17 : 0) +
+        (slider.defending - Math.max(victim.overall, victim.pace)) * 0.007,
       0.25,
       0.86,
     );
@@ -1991,7 +2478,8 @@ function predictBallLanding(ball: Ball) {
   }
   const gravity = 18.5;
   const time = clamp(
-    (ball.vz + Math.sqrt(ball.vz * ball.vz + 2 * gravity * Math.max(0, ball.z))) /
+    (ball.vz +
+      Math.sqrt(ball.vz * ball.vz + 2 * gravity * Math.max(0, ball.z))) /
       gravity,
     0,
     2.6,
@@ -1999,10 +2487,7 @@ function predictBallLanding(ball: Ball) {
   const travelScale = 0.91 + Math.min(0.07, time * 0.025);
   return {
     x: ball.x + ball.vx * time * travelScale,
-    y:
-      ball.y +
-      ball.vy * time * travelScale +
-      ball.spin * time * time * 0.065,
+    y: ball.y + ball.vy * time * travelScale + ball.spin * time * time * 0.065,
     time,
   };
 }
@@ -2058,7 +2543,10 @@ function chooseKeeperDistributionTarget(state: MatchState, keeper: Player) {
 
 function updateKeeper(state: MatchState, player: Player, dt: number) {
   const ownLeft = defendingGoalX(state, player.side) === 0;
-  const keeperAbility = teamAbility(state, player.side);
+  const keeperAbility =
+    teamAbility(state, player.side) *
+    playerAttributeFactor(player.overall) *
+    0.94;
   const owner = getPlayer(state, state.ball.owner);
   const goalX = ownLeft ? 0 : FIELD_W;
   const baseX = ownLeft ? 4.8 : 95.2;
@@ -2156,16 +2644,13 @@ function updateKeeper(state: MatchState, player: Player, dt: number) {
       targetY = player.keeperTargetY;
       keeperSpeed =
         goalPrediction.time < 0.46
-          ? 28
+          ? 25
           : goalPrediction.time < 0.82
-            ? 24.5
-            : 20.5;
+            ? 22
+            : 18.5;
       const reachY = Math.abs(targetY - player.y);
       const highBall = goalPrediction.z > 1.45;
-      if (
-        goalPrediction.time < 0.82 &&
-        (reachY > 1.15 || highBall)
-      ) {
+      if (goalPrediction.time < 0.82 && (reachY > 1.15 || highBall)) {
         player.keeperDiveTimer = Math.max(player.keeperDiveTimer, 0.36);
         player.keeperDiveDirection = Math.sign(targetY - player.y) || 1;
       }
@@ -2180,8 +2665,7 @@ function updateKeeper(state: MatchState, player: Player, dt: number) {
       40,
       ...state.players
         .filter(
-          (candidate) =>
-            candidate.side !== player.side && !candidate.sentOff,
+          (candidate) => candidate.side !== player.side && !candidate.sentOff,
         )
         .map((candidate) =>
           distance(candidate.x, candidate.y, landing.x, landing.y),
@@ -2242,7 +2726,12 @@ function updateKeeper(state: MatchState, player: Player, dt: number) {
     }
   }
 
-  if (!shotThreat && state.ball.owner === null && ballInBox && state.ball.z < 1.8) {
+  if (
+    !shotThreat &&
+    state.ball.owner === null &&
+    ballInBox &&
+    state.ball.z < 1.8
+  ) {
     const keeperDistance = distance(
       player.x,
       player.y,
@@ -2253,8 +2742,7 @@ function updateKeeper(state: MatchState, player: Player, dt: number) {
       40,
       ...state.players
         .filter(
-          (candidate) =>
-            candidate.side !== player.side && !candidate.sentOff,
+          (candidate) => candidate.side !== player.side && !candidate.sentOff,
         )
         .map((candidate) =>
           distance(candidate.x, candidate.y, state.ball.x, state.ball.y),
@@ -2262,10 +2750,7 @@ function updateKeeper(state: MatchState, player: Player, dt: number) {
     );
     const keeperArrival = keeperDistance / 20;
     const opponentArrival = opponentDistance / 14.2;
-    if (
-      keeperDistance < 13 &&
-      keeperArrival + 0.12 < opponentArrival
-    ) {
+    if (keeperDistance < 13 && keeperArrival + 0.12 < opponentArrival) {
       targetX = clamp(state.ball.x, ownLeft ? 3 : 83, ownLeft ? 17 : 97);
       targetY = clamp(state.ball.y, 8, 56);
       keeperSpeed = 20;
@@ -2291,9 +2776,7 @@ function findMarkTarget(state: MatchState, marker: Player) {
   const threats = state.players
     .filter(
       (player) =>
-        player.side !== marker.side &&
-        !player.sentOff &&
-        player.role !== "GK",
+        player.side !== marker.side && !player.sentOff && player.role !== "GK",
     )
     .sort((a, b) => a.y - b.y);
   const markerIndex = Math.max(
@@ -2312,6 +2795,8 @@ function aiTarget(
   const owner = getPlayer(state, state.ball.owner);
   const teamHasBall = owner?.side === player.side;
   const attackDirection = attackDirectionFor(state, player.side);
+  const tactic =
+    TACTICS[player.side === "home" ? state.homeTactic : state.awayTactic];
   const difficultyBoost =
     player.side === "away"
       ? state.difficulty === "easy"
@@ -2320,14 +2805,24 @@ function aiTarget(
           ? 1.13
           : 1
       : 1;
-  const abilityBoost = teamAbility(state, player.side);
+  const abilityBoost =
+    teamAbility(state, player.side) * playerAttributeFactor(player.pace);
+  const anchorX = clamp(
+    formationXFor(state, player) + attackDirection * tactic.line,
+    4,
+    FIELD_W - 4,
+  );
+  const anchorY = clamp(
+    32 + (player.homeY - 32) * tactic.width,
+    4,
+    FIELD_H - 4,
+  );
 
   if (state.ball.owner === player.id) {
     const goalX = attackingGoalX(state, player.side, 1);
     const closestOpponent = state.players
       .filter(
-        (candidate) =>
-          candidate.side !== player.side && !candidate.sentOff,
+        (candidate) => candidate.side !== player.side && !candidate.sentOff,
       )
       .sort(
         (a, b) =>
@@ -2335,19 +2830,23 @@ function aiTarget(
           distance(player.x, player.y, b.x, b.y),
       )[0];
     const avoid =
-      closestOpponent && distance(player.x, player.y, closestOpponent.x, closestOpponent.y) < 6
+      closestOpponent &&
+      distance(player.x, player.y, closestOpponent.x, closestOpponent.y) < 6
         ? clamp((player.y - closestOpponent.y) * 0.9, -7, 7)
         : 0;
     movePlayer(
       player,
       goalX,
       clamp(32 + avoid, 8, 56),
-      12.1 * difficultyBoost * abilityBoost,
+      12.1 * difficultyBoost * abilityBoost * tactic.tempo,
       dt,
     );
 
     player.decisionCooldown -= dt;
-    const inRange = attackDirection > 0 ? player.x > 76 : player.x < 24;
+    const shotLine =
+      tactic.id === "attacking" ? 72 : tactic.id === "counter" ? 74 : 76;
+    const inRange =
+      attackDirection > 0 ? player.x > shotLine : player.x < 100 - shotLine;
     if (inRange && player.decisionCooldown <= 0) {
       const opposingKeeper = state.players.find(
         (candidate) =>
@@ -2369,14 +2868,15 @@ function aiTarget(
         player,
         goalX,
         targetY,
-        43 + random(state) * 8,
+        (43 + random(state) * 8) * playerAttributeFactor(player.shooting),
         "shot",
         4.2 + random(state) * 2.4,
       );
       player.decisionCooldown = 1;
     } else if (
       closestOpponent &&
-      distance(player.x, player.y, closestOpponent.x, closestOpponent.y) < 3.8 &&
+      distance(player.x, player.y, closestOpponent.x, closestOpponent.y) <
+        3.8 &&
       player.decisionCooldown <= 0
     ) {
       const target = choosePassTarget(state, player);
@@ -2384,7 +2884,14 @@ function aiTarget(
         if (isOffsidePosition(state, player, target)) {
           awardOffside(state, player, target);
         } else {
-          kickBall(state, player, target.x, target.y, 30, "pass");
+          kickBall(
+            state,
+            player,
+            target.x,
+            target.y,
+            30 * playerAttributeFactor(player.passing),
+            "pass",
+          );
         }
       }
     }
@@ -2398,45 +2905,42 @@ function aiTarget(
       player,
       targetX,
       targetY,
-      13.8 * difficultyBoost * abilityBoost,
+      13.8 * difficultyBoost * abilityBoost * tactic.pressure,
       dt,
     );
     return;
   }
 
-  if (
-    !teamHasBall &&
-    owner &&
-    (player.role === "DF" || player.role === "MF")
-  ) {
+  if (!teamHasBall && owner && (player.role === "DF" || player.role === "MF")) {
     const mark = findMarkTarget(state, player);
     if (mark) {
       const goalSideOffset = -attackDirection * 3.1;
       movePlayer(
         player,
-        clamp(mark.x + goalSideOffset, 5, FIELD_W - 5),
-        clamp(mark.y, 5, FIELD_H - 5),
-        11.5 * difficultyBoost * abilityBoost,
+        clamp(mark.x + goalSideOffset, anchorX - 12, anchorX + 12),
+        clamp(mark.y, anchorY - 10, anchorY + 10),
+        11.5 * difficultyBoost * abilityBoost * tactic.pressure,
         dt,
       );
       return;
     }
   }
 
-  const formationX = formationXFor(state, player);
-  const shift = clamp(state.ball.x - formationX, -18, 18) * 0.3;
-  let targetX = formationX + shift;
-  let targetY = player.homeY;
+  const shift = clamp(state.ball.x - anchorX, -14, 14) * 0.24;
+  let targetX = anchorX + shift;
+  let targetY = anchorY;
 
   if (teamHasBall && owner) {
-    targetX += attackDirection * 7;
-    targetY += clamp((owner.y - player.homeY) * 0.2, -4, 4);
+    const roleRun =
+      player.role === "FW" ? 1 : player.role === "MF" ? 0.62 : 0.2;
+    targetX += attackDirection * tactic.forwardRuns * roleRun;
+    targetY += clamp((owner.y - anchorY) * 0.18, -4, 4);
   }
   movePlayer(
     player,
     targetX,
     targetY,
-    10.3 * difficultyBoost * abilityBoost,
+    10.3 * difficultyBoost * abilityBoost * tactic.tempo,
     dt,
   );
 }
@@ -2453,9 +2957,14 @@ function registerGoal(state: MatchState, scoringSide: Side, demo: boolean) {
       " • " +
       state.lastShotStyle;
   setMessage(state, demo ? "GOL" : "GOOOOL • " + goalLabel, 1.8);
-  const goalX = attackingGoalX(state, scoringSide) -
-    attackDirectionFor(state, scoringSide);
-  const colors = [scoringTeam.primary, scoringTeam.secondary, "#ffffff", "#ffd60a"];
+  const goalX =
+    attackingGoalX(state, scoringSide) - attackDirectionFor(state, scoringSide);
+  const colors = [
+    scoringTeam.primary,
+    scoringTeam.secondary,
+    "#ffffff",
+    "#ffd60a",
+  ];
   const spectacular =
     state.lastShotStyle === "BOMBA" ||
     state.lastShotStyle === "GOL DE FALTA" ||
@@ -2484,7 +2993,8 @@ function updateBall(state: MatchState, dt: number, demo: boolean) {
   if (owner) {
     const movement = Math.hypot(owner.vx, owner.vy);
     const stride = Math.sin(state.elapsed * 12 + owner.id) * 0.14;
-    const touchDistance = 1.32 + Math.abs(stride) + Math.min(0.22, movement * 0.01);
+    const touchDistance =
+      1.32 + Math.abs(stride) + Math.min(0.22, movement * 0.01);
     state.ball.x = owner.x + owner.facingX * touchDistance;
     state.ball.y = owner.y + owner.facingY * touchDistance;
     state.ball.z = 0.12 + (movement > 2 ? Math.abs(stride) * 0.85 : 0);
@@ -2538,8 +3048,7 @@ function updateBall(state: MatchState, dt: number, demo: boolean) {
     state.ball.vy *= friction;
     state.ball.spin *= Math.pow(state.ball.z > 0.08 ? 0.992 : 0.955, dt * 60);
 
-    const crossedRightGoalLine =
-      previousX < FIELD_W && state.ball.x >= FIELD_W;
+    const crossedRightGoalLine = previousX < FIELD_W && state.ball.x >= FIELD_W;
     const crossedLeftGoalLine = previousX > 0 && state.ball.x <= 0;
     if (crossedRightGoalLine || crossedLeftGoalLine) {
       const crossingLineX = crossedRightGoalLine ? FIELD_W : 0;
@@ -2555,15 +3064,13 @@ function updateBall(state: MatchState, dt: number, demo: boolean) {
         previousY + (state.ball.y - previousY) * crossingProgress;
       const crossingZ =
         previousZ + (state.ball.z - previousZ) * crossingProgress;
-      const insidePosts =
-        crossingY >= GOAL_TOP && crossingY <= GOAL_BOTTOM;
+      const insidePosts = crossingY >= GOAL_TOP && crossingY <= GOAL_BOTTOM;
       const hitPost =
         insidePosts &&
         (Math.abs(crossingY - GOAL_TOP) < 0.72 ||
           Math.abs(crossingY - GOAL_BOTTOM) < 0.72) &&
         crossingZ < 5.8;
-      const hitCrossbar =
-        insidePosts && Math.abs(crossingZ - 5.15) < 0.62;
+      const hitCrossbar = insidePosts && Math.abs(crossingZ - 5.15) < 0.62;
 
       if (hitPost || hitCrossbar) {
         state.ball.x = crossedRightGoalLine ? FIELD_W - 0.5 : 0.5;
@@ -2666,28 +3173,28 @@ function updateBall(state: MatchState, dt: number, demo: boolean) {
     }
 
     state.players.forEach((player) => {
-      if (player.sentOff || player.slideTimer > 0 || player.stumbleTimer > 0) return;
-      if (
-        state.ball.looseTimer > 0 &&
-        player.id === state.ball.lastPlayerId
-      ) {
+      if (player.sentOff || player.slideTimer > 0 || player.stumbleTimer > 0)
+        return;
+      if (state.ball.looseTimer > 0 && player.id === state.ball.lastPlayerId) {
         return;
       }
       const d = distance(player.x, player.y, state.ball.x, state.ball.y);
       const sameTeamPass = player.side === state.ball.lastTouch;
       const isSelectedHuman =
         player.id === state.selectedId ||
-        (state.gameMode === "local2p" &&
-          player.id === state.selectedAwayId);
+        (state.gameMode === "local2p" && player.id === state.selectedAwayId);
       const controlRadius =
         player.role === "GK"
-          ? 3.25 + (player.keeperDiveTimer > 0 ? 1.35 : 0)
+          ? 3.05 + (player.keeperDiveTimer > 0 ? 1.18 : 0)
           : sameTeamPass
-            ? 2.15
-            : 1.72;
+            ? 2.05 + (player.passing - 75) * 0.006
+            : 1.62 + (player.overall - 75) * 0.005;
       const controlSpeed =
         (player.role === "GK" ? 78 : sameTeamPass ? 36 : 27) *
-        teamAbility(state, player.side);
+        teamAbility(state, player.side) *
+        playerAttributeFactor(
+          player.role === "GK" ? player.overall : player.passing,
+        );
       const bonusRadius = isSelectedHuman ? 0.22 : 0;
       const canReachHeight =
         player.role === "GK" ? state.ball.z < 6.25 : state.ball.z < 1.55;
@@ -2722,14 +3229,20 @@ function updateBall(state: MatchState, dt: number, demo: boolean) {
       const reflectedY = state.ball.vy - 2 * impact * normalY;
       state.ball.vx = reflectedX * 0.52 + blocker.vx * 0.34;
       state.ball.vy = reflectedY * 0.52 + blocker.vy * 0.34;
-      state.ball.vz = Math.max(1.2, Math.abs(state.ball.vz) * 0.28 + random(state) * 1.7);
+      state.ball.vz = Math.max(
+        1.2,
+        Math.abs(state.ball.vz) * 0.28 + random(state) * 1.7,
+      );
       state.ball.z = Math.max(0.16, state.ball.z);
       state.ball.spin = (random(state) - 0.5) * 7;
       state.ball.lastTouch = blocker.side;
       state.ball.lastPlayerId = blocker.id;
       state.ball.looseTimer = 0.1;
       blocker.stumbleTimer = ballSpeed > 48 ? 0.12 : 0.05;
-      state.cameraShake = Math.max(state.cameraShake, ballSpeed > 40 ? 0.38 : 0.2);
+      state.cameraShake = Math.max(
+        state.cameraShake,
+        ballSpeed > 40 ? 0.38 : 0.2,
+      );
       state.impactFlash = Math.max(state.impactFlash, 0.12);
       if (ballSpeed > 33) setMessage(state, "BLOQUEIO!", 0.5);
       return;
@@ -2738,12 +3251,13 @@ function updateBall(state: MatchState, dt: number, demo: boolean) {
       const catchChance =
         pickup.role === "GK"
           ? clamp(
-              0.9 -
+              0.82 +
+                (pickup.overall - 82) * 0.006 -
                 Math.max(0, ballSpeed - 28) * 0.014 -
                 Math.max(0, state.ball.z - 2.3) * 0.075 -
                 (pickup.keeperDiveTimer > 0 ? 0.07 : 0),
-              0.24,
-              0.9,
+              0.2,
+              0.85,
             )
           : 0;
       if (
@@ -2814,7 +3328,9 @@ function updateSteals(state: MatchState, dt: number, demo: boolean) {
       distance(player.x, player.y, owner.x, owner.y) < 1.35 &&
       player.tackleCooldown <= 0
     ) {
-      const base = player.side === "away" && state.difficulty === "hard" ? 0.7 : 0.42;
+      const base =
+        (player.side === "away" && state.difficulty === "hard" ? 0.7 : 0.42) *
+        playerAttributeFactor(player.defending);
       if (random(state) < dt * base) {
         player.tackleCooldown = 0.9;
         const ownerToDefenderX = player.x - owner.x;
@@ -2830,7 +3346,8 @@ function updateSteals(state: MatchState, dt: number, demo: boolean) {
           -0.3;
         const cleanChance = clamp(
           (player.side === "away" && state.difficulty === "hard" ? 0.9 : 0.82) -
-            (fromBehind ? 0.27 : 0),
+            (fromBehind ? 0.27 : 0) +
+            (player.defending - Math.max(owner.overall, owner.pace)) * 0.007,
           0.46,
           0.92,
         );
@@ -2843,11 +3360,7 @@ function updateSteals(state: MatchState, dt: number, demo: boolean) {
           state.ball.vz = 0;
           player.controlShield = 0.28;
           if (!demo && player.side === "home") state.selectedId = player.id;
-          if (
-            !demo &&
-            player.side === "away" &&
-            state.gameMode === "local2p"
-          ) {
+          if (!demo && player.side === "away" && state.gameMode === "local2p") {
             state.selectedAwayId = player.id;
           }
         } else {
@@ -2890,8 +3403,7 @@ function updateSetPiece(
     piece.ready = true;
     piece.readyTimer = 0;
     const humanSetPiece =
-      !demo &&
-      (piece.side === "home" || state.gameMode === "local2p");
+      !demo && (piece.side === "home" || state.gameMode === "local2p");
     if (humanSetPiece) {
       const passKey = piece.side === "home" ? "F" : "K";
       const shotKey = piece.side === "home" ? "ESPAÇO" : "L";
@@ -2926,7 +3438,11 @@ function updateSetPiece(
           ? 1
           : 0);
     if (piece.side === "home") aimDirection += input.touchY;
-    piece.aimY = clamp(piece.aimY + aimDirection * dt * 10.5, GOAL_TOP + 1, GOAL_BOTTOM - 1);
+    piece.aimY = clamp(
+      piece.aimY + aimDirection * dt * 10.5,
+      GOAL_TOP + 1,
+      GOAL_BOTTOM - 1,
+    );
     if (piece.side === "home" && state.chargingShot) {
       state.shotCharge = clamp(state.shotCharge + dt * 0.82, 0, 1);
     } else if (piece.side === "away" && state.chargingAwayShot) {
@@ -3037,10 +3553,15 @@ function updateMatch(
         input,
         dt,
         state.gameMode,
-        teamAbility(state, player.side),
+        teamAbility(state, player.side) * playerAttributeFactor(player.pace),
       );
-    }
-    else aiTarget(state, player, player.side === "home" ? homeChaser : awayChaser, dt);
+    } else
+      aiTarget(
+        state,
+        player,
+        player.side === "home" ? homeChaser : awayChaser,
+        dt,
+      );
     player.x = clamp(player.x, 2.5, FIELD_W - 2.5);
     player.y = clamp(player.y, 3.5, FIELD_H - 3.5);
   });
@@ -3130,11 +3651,13 @@ function drawStadium(
 
   ctx.fillStyle = "#18242b";
   ctx.fillRect(0, view.height * 0.04, view.width, view.height * 0.09);
-  const dots = quality === "performance" ? 120 : quality === "balanced" ? 230 : 360;
+  const dots =
+    quality === "performance" ? 120 : quality === "balanced" ? 230 : 360;
   for (let index = 0; index < dots; index += 1) {
     const x = ((index * 83) % 997) / 997;
     const y = (((index * 47) % 199) / 199) * 0.07 + 0.05;
-    const hue = index % 11 === 0 ? "#ffd60a" : index % 7 === 0 ? "#56cbff" : "#d5e0e5";
+    const hue =
+      index % 11 === 0 ? "#ffd60a" : index % 7 === 0 ? "#56cbff" : "#d5e0e5";
     ctx.globalAlpha = 0.2 + ((index * 17) % 10) / 25;
     ctx.fillStyle = hue;
     ctx.fillRect(x * view.width, y * view.height, 1.2, 1.2);
@@ -3157,7 +3680,12 @@ function drawStadium(
   ctx.font = "900 " + Math.max(6, view.height * 0.011) + "px Arial";
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
-  const boardLabels = ["STADLER FOOTBALL", "FAIR PLAY", "TITAN SPORTS", "NEXT LEVEL"];
+  const boardLabels = [
+    "STADLER FOOTBALL",
+    "FAIR PLAY",
+    "TITAN SPORTS",
+    "NEXT LEVEL",
+  ];
   boardLabels.forEach((label, index) => {
     ctx.fillText(
       label,
@@ -3293,9 +3821,7 @@ function drawField(
         [stripe * 10, 64],
       ]);
       ctx.fillStyle =
-        stripe % 2 === 0
-          ? "rgba(255,255,255,.018)"
-          : "rgba(0,0,0,.018)";
+        stripe % 2 === 0 ? "rgba(255,255,255,.018)" : "rgba(0,0,0,.018)";
       ctx.fill();
     }
 
@@ -3307,9 +3833,7 @@ function drawField(
       const worldY = ((index * 83 + 29) % 631) / 9.86;
       const grass = project(view, worldX, worldY);
       ctx.strokeStyle =
-        index % 3 === 0
-          ? "rgba(220,255,226,.11)"
-          : "rgba(1,45,21,.14)";
+        index % 3 === 0 ? "rgba(220,255,226,.11)" : "rgba(1,45,21,.14)";
       ctx.beginPath();
       ctx.moveTo(grass.x, grass.y);
       ctx.lineTo(grass.x + (index % 2 ? 1.1 : -0.8), grass.y - 1.8);
@@ -3368,10 +3892,7 @@ function drawField(
   ctx.arc(center.x, center.y, 2, 0, Math.PI * 2);
   ctx.fill();
 
-  const penaltySpots = [
-    project(view, 11, 32),
-    project(view, 89, 32),
-  ];
+  const penaltySpots = [project(view, 11, 32), project(view, 89, 32)];
   penaltySpots.forEach((spot) => {
     ctx.beginPath();
     ctx.arc(spot.x, spot.y, 1.8, 0, Math.PI * 2);
@@ -3606,7 +4127,13 @@ function drawPlayer(
   jersey.addColorStop(1, kitSecondary);
   ctx.fillStyle = jersey;
   ctx.beginPath();
-  ctx.roundRect(-size * 0.53, -size * 0.88, size * 1.06, size * 1.18, size * 0.36);
+  ctx.roundRect(
+    -size * 0.53,
+    -size * 0.88,
+    size * 1.06,
+    size * 1.18,
+    size * 0.36,
+  );
   ctx.fill();
   ctx.strokeStyle = "rgba(255,255,255,.28)";
   ctx.lineWidth = 1;
@@ -3680,11 +4207,7 @@ function drawPlayer(
   ctx.restore();
 }
 
-function drawBall(
-  ctx: CanvasRenderingContext2D,
-  view: View,
-  ball: Ball,
-) {
+function drawBall(ctx: CanvasRenderingContext2D, view: View, ball: Ball) {
   const p = project(view, ball.x, ball.y);
   const liftPixels = ball.z * clamp(view.height / 92, 5.4, 10.5);
   const ballY = p.y - liftPixels;
@@ -3817,11 +4340,7 @@ function drawSetPieceGuide(
     targetX = attackingGoalX(state, piece.side) - attackDirection * 13;
     targetY = 32;
   } else if (piece.kind === "throwIn") {
-    targetX = clamp(
-      piece.spotX + attackDirection * 13,
-      5,
-      95,
-    );
+    targetX = clamp(piece.spotX + attackDirection * 13, 5, 95);
     targetY = piece.spotY < 32 ? 11 : 53;
   } else if (piece.kind === "goalKick") {
     targetX = piece.spotX + attackDirection * 31;
@@ -3997,13 +4516,23 @@ function badgeTextColor(color: string) {
   return luminance > 0.66 ? "#101416" : "#fff";
 }
 
-function TeamBadge({ team, compact = false }: { team: Team; compact?: boolean }) {
+function TeamBadge({
+  team,
+  compact = false,
+}: {
+  team: Team;
+  compact?: boolean;
+}) {
   return (
     <span
       className={"team-badge" + (compact ? " team-badge--compact" : "")}
       style={{
         background:
-          "linear-gradient(145deg, " + team.primary + ", " + team.secondary + ")",
+          "linear-gradient(145deg, " +
+          team.primary +
+          ", " +
+          team.secondary +
+          ")",
         color: badgeTextColor(team.primary),
       }}
       aria-hidden="true"
@@ -4011,6 +4540,201 @@ function TeamBadge({ team, compact = false }: { team: Team; compact?: boolean })
       {team.short.slice(0, 3)}
     </span>
   );
+}
+
+function TeamFlag({ team }: { team: Team }) {
+  return (
+    <span
+      className="team-flag"
+      role="img"
+      aria-label={`Bandeira do ${team.name}`}
+      title={team.name}
+    >
+      <span
+        className="team-flag__cloth"
+        style={{
+          background:
+            "linear-gradient(135deg, " +
+            team.primary +
+            " 0 48%, " +
+            team.secondary +
+            " 48% 100%)",
+          color: badgeTextColor(team.primary),
+        }}
+      >
+        {team.short}
+      </span>
+      <span className="team-flag__country" aria-hidden="true">
+        {team.flag}
+      </span>
+    </span>
+  );
+}
+
+function leagueNameFor(team: Team) {
+  if (team.city === "Brasileirão") return "Brasileirão Série A";
+  if (team.city.includes("Inglaterra")) return "Premier League";
+  if (team.city.includes("Espanha")) return "LaLiga";
+  if (team.city.includes("Itália")) return "Serie A Italiana";
+  if (team.city.includes("Alemanha")) return "Bundesliga";
+  if (team.city.includes("França")) return "Ligue 1";
+  return "Liga Elite";
+}
+
+function cupNameFor(team: Team, scope: CupScope) {
+  if (scope === "world") return "Mundial de Clubes";
+  return team.city === "Brasileirão" ? "Libertadores" : "Champions League";
+}
+
+function leagueTeamsFor(team: Team) {
+  const sameLeague = TEAMS.filter((candidate) => candidate.city === team.city);
+  const pool =
+    sameLeague.length >= 3
+      ? sameLeague
+      : TEAMS.filter((candidate) => candidate.city.startsWith("Europa"));
+  return [team, ...pool.filter((candidate) => candidate.id !== team.id)].slice(
+    0,
+    8,
+  );
+}
+
+function createLeagueRows(team: Team): LeagueRow[] {
+  return leagueTeamsFor(team).map((candidate) => ({
+    teamId: candidate.id,
+    played: 0,
+    wins: 0,
+    draws: 0,
+    losses: 0,
+    goalsFor: 0,
+    goalsAgainst: 0,
+    points: 0,
+  }));
+}
+
+function applyFixture(
+  rows: LeagueRow[],
+  homeId: string,
+  awayId: string,
+  homeGoals: number,
+  awayGoals: number,
+) {
+  const next = rows.map((row) => ({ ...row }));
+  const ensureRow = (teamId: string) => {
+    let row = next.find((candidate) => candidate.teamId === teamId);
+    if (!row) {
+      row = {
+        teamId,
+        played: 0,
+        wins: 0,
+        draws: 0,
+        losses: 0,
+        goalsFor: 0,
+        goalsAgainst: 0,
+        points: 0,
+      };
+      next.push(row);
+    }
+    return row;
+  };
+  const home = ensureRow(homeId);
+  const away = ensureRow(awayId);
+  home.played += 1;
+  away.played += 1;
+  home.goalsFor += homeGoals;
+  home.goalsAgainst += awayGoals;
+  away.goalsFor += awayGoals;
+  away.goalsAgainst += homeGoals;
+  if (homeGoals > awayGoals) {
+    home.wins += 1;
+    away.losses += 1;
+    home.points += 3;
+  } else if (awayGoals > homeGoals) {
+    away.wins += 1;
+    home.losses += 1;
+    away.points += 3;
+  } else {
+    home.draws += 1;
+    away.draws += 1;
+    home.points += 1;
+    away.points += 1;
+  }
+  return next;
+}
+
+function simulateLeagueRound(
+  rows: LeagueRow[],
+  homeId: string,
+  awayId: string,
+  homeGoals: number,
+  awayGoals: number,
+) {
+  let next = applyFixture(rows, homeId, awayId, homeGoals, awayGoals);
+  const others = next.filter(
+    (row) => row.teamId !== homeId && row.teamId !== awayId,
+  );
+  for (let index = 0; index + 1 < others.length; index += 2) {
+    const first = TEAMS.find((team) => team.id === others[index].teamId);
+    const second = TEAMS.find((team) => team.id === others[index + 1].teamId);
+    const round = others[index].played + 1;
+    const firstGoals = ((first?.rating ?? 84) + round + index) % 3;
+    const secondGoals = ((second?.rating ?? 84) + round * 2 + index) % 3;
+    next = applyFixture(
+      next,
+      others[index].teamId,
+      others[index + 1].teamId,
+      firstGoals,
+      secondGoals,
+    );
+  }
+  return next;
+}
+
+function sortedLeagueRows(rows: LeagueRow[]) {
+  return [...rows].sort(
+    (a, b) =>
+      b.points - a.points ||
+      b.goalsFor - b.goalsAgainst - (a.goalsFor - a.goalsAgainst) ||
+      b.goalsFor - a.goalsFor,
+  );
+}
+
+function createCareer(team: Team): CareerState {
+  return {
+    clubId: team.id,
+    season: 1,
+    budget: 145,
+    fans: 250_000,
+    squad: rosterFor(team).map((seed, index) => [
+      seed[0],
+      seed[1],
+      seed[2],
+      FORMATIONS["2-3-2"].slots[index]?.[0] ?? "MF",
+    ]),
+    history: [],
+  };
+}
+
+function marketPrice(overall: number) {
+  return Math.max(8, Math.round((overall - 65) ** 2 / 6));
+}
+
+function transferMarketFor(team: Team, squad: SquadSeed[]): MarketEntry[] {
+  const signedNames = new Set(squad.map((player) => player[0]));
+  return TEAMS.filter((candidate) => candidate.id !== team.id)
+    .flatMap((candidate) =>
+      rosterFor(candidate).map((seed, index) => ({
+        team: candidate,
+        seed: [
+          seed[0],
+          seed[1],
+          seed[2],
+          FORMATIONS["2-3-2"].slots[index]?.[0] ?? "MF",
+        ] as SquadSeed,
+      })),
+    )
+    .filter((entry) => !signedNames.has(entry.seed[0]))
+    .sort((a, b) => b.seed[2] - a.seed[2])
+    .slice(0, 10);
 }
 
 export default function FootballGame() {
@@ -4036,23 +4760,40 @@ export default function FootballGame() {
     togglePause: () => undefined,
   });
   const audioContextRef = useRef<AudioContext | null>(null);
+  const resultRecordedRef = useRef(false);
   const [screen, setScreen] = useState<Screen>("menu");
   const [homeIndex, setHomeIndex] = useState(0);
   const [awayIndex, setAwayIndex] = useState(1);
   const [gameMode, setGameMode] = useState<GameMode>("solo");
+  const [competitionMode, setCompetitionMode] =
+    useState<CompetitionMode>("friendly");
+  const [cupScope, setCupScope] = useState<CupScope>("continental");
+  const [homeFormation, setHomeFormation] = useState<FormationId>("2-3-2");
+  const [awayFormation, setAwayFormation] = useState<FormationId>("3-2-2");
+  const [homeTactic, setHomeTactic] = useState<TacticId>("balanced");
+  const [awayTactic, setAwayTactic] = useState<TacticId>("counter");
   const [difficulty, setDifficulty] = useState<Difficulty>("normal");
   const [quality, setQuality] = useState<Quality>("performance");
   const [audioEnabled, setAudioEnabled] = useState(true);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [marketOpen, setMarketOpen] = useState(false);
   const [paused, setPaused] = useState(false);
   const [knob, setKnob] = useState({ x: 0, y: 0 });
+  const [leagueRows, setLeagueRows] = useState<LeagueRow[]>(() =>
+    createLeagueRows(TEAMS[0]),
+  );
+  const [cupRound, setCupRound] = useState(0);
+  const [cupEliminated, setCupEliminated] = useState(false);
+  const [career, setCareer] = useState<CareerState>(() =>
+    createCareer(TEAMS[0]),
+  );
   const [hud, setHud] = useState<Hud>({
     homeScore: 0,
     awayScore: 0,
     remaining: HALF_SECONDS,
     half: 1,
-    playerName: "Stadler",
-    playerNumber: 10,
+    playerName: "Pedro",
+    playerNumber: 9,
     stamina: 100,
     shotCharge: 0,
     message: "",
@@ -4062,10 +4803,12 @@ export default function FootballGame() {
     setPieceSide: null,
     homeCards: 0,
     awayCards: 0,
-    awayPlayerName: "Rivaldo",
+    awayPlayerName: "Mbappé",
     awayPlayerNumber: 10,
     awayStamina: 100,
     awayShotCharge: 0,
+    playerOverall: 84,
+    awayPlayerOverall: 91,
     gameMode: "solo",
   });
   const [finalStats, setFinalStats] = useState<MatchStats>({
@@ -4085,46 +4828,153 @@ export default function FootballGame() {
 
   const homeTeam = TEAMS[homeIndex];
   const awayTeam = TEAMS[awayIndex];
+  const activeCareerSquad =
+    competitionMode === "career" && career.clubId === homeTeam.id
+      ? career.squad
+      : undefined;
+  const featuredPlayer = useMemo(
+    () =>
+      [...rosterFor(homeTeam, activeCareerSquad)].sort(
+        (a, b) => b[2] - a[2],
+      )[0],
+    [activeCareerSquad, homeTeam],
+  );
+  const featuredAttributes = useMemo(
+    () => attributeProfile(featuredPlayer, featuredPlayer[3] ?? "FW"),
+    [featuredPlayer],
+  );
+  const standings = useMemo(() => sortedLeagueRows(leagueRows), [leagueRows]);
+  const transferMarket = useMemo(
+    () => transferMarketFor(homeTeam, career.squad),
+    [career.squad, homeTeam],
+  );
 
-  const playTone = useCallback((kind: "kick" | "goal" | "whistle" | "tackle") => {
-    if (!audioEnabledRef.current) return;
+  useEffect(() => {
+    let restoreTimer: number | undefined;
     try {
-      const AudioCtor = window.AudioContext;
-      const audio = audioContextRef.current ?? new AudioCtor();
-      audioContextRef.current = audio;
-      if (audio.state === "suspended") void audio.resume();
-      const now = audio.currentTime;
-      const notes =
-        kind === "goal"
-          ? [330, 440, 660, 880]
-          : kind === "whistle"
-            ? [960, 1180]
-            : kind === "tackle"
-              ? [110]
-              : [150];
-      notes.forEach((frequency, index) => {
-        const oscillator = audio.createOscillator();
-        const gain = audio.createGain();
-        oscillator.type = kind === "goal" ? "triangle" : kind === "whistle" ? "sine" : "square";
-        oscillator.frequency.setValueAtTime(frequency, now + index * 0.08);
-        gain.gain.setValueAtTime(0.0001, now + index * 0.08);
-        gain.gain.exponentialRampToValueAtTime(
-          kind === "goal" ? 0.055 : 0.025,
-          now + index * 0.08 + 0.012,
-        );
-        gain.gain.exponentialRampToValueAtTime(
-          0.0001,
-          now + index * 0.08 + (kind === "goal" ? 0.23 : 0.1),
-        );
-        oscillator.connect(gain);
-        gain.connect(audio.destination);
-        oscillator.start(now + index * 0.08);
-        oscillator.stop(now + index * 0.08 + 0.28);
-      });
+      const stored = window.localStorage.getItem("stadler-career-v1");
+      if (!stored) return;
+      const parsed = JSON.parse(stored) as CareerState;
+      const storedTeamIndex = TEAMS.findIndex(
+        (team) => team.id === parsed.clubId,
+      );
+      if (storedTeamIndex >= 0 && Array.isArray(parsed.squad)) {
+        restoreTimer = window.setTimeout(() => {
+          const restoredTeam = TEAMS[storedTeamIndex];
+          setCareer(parsed);
+          setHomeIndex(storedTeamIndex);
+          setLeagueRows(createLeagueRows(restoredTeam));
+          const opponentIndex = TEAMS.findIndex(
+            (team) => team.id !== restoredTeam.id,
+          );
+          if (opponentIndex >= 0) setAwayIndex(opponentIndex);
+        }, 0);
+      }
     } catch {
-      // Audio is an enhancement; gameplay continues if the browser blocks it.
+      // Um save inválido não impede o jogo de iniciar.
     }
+    return () => {
+      if (restoreTimer !== undefined) window.clearTimeout(restoreTimer);
+    };
   }, []);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem("stadler-career-v1", JSON.stringify(career));
+    } catch {
+      // O modo carreira segue funcional quando o navegador bloqueia storage.
+    }
+  }, [career]);
+
+  useEffect(() => {
+    if (screen !== "finished" || resultRecordedRef.current) return;
+    const state = engineRef.current;
+    if (!state) return;
+    resultRecordedRef.current = true;
+    if (competitionMode === "league" || competitionMode === "career") {
+      setLeagueRows((current) =>
+        simulateLeagueRound(
+          current,
+          state.homeTeam.id,
+          state.awayTeam.id,
+          state.homeScore,
+          state.awayScore,
+        ),
+      );
+    }
+    if (competitionMode === "cup") {
+      const possessionEdge =
+        state.stats.homePossession >= state.stats.awayPossession;
+      const advanced =
+        state.homeScore > state.awayScore ||
+        (state.homeScore === state.awayScore && possessionEdge);
+      if (advanced) setCupRound((current) => Math.min(3, current + 1));
+      else setCupEliminated(true);
+    }
+    if (competitionMode === "career") {
+      const won = state.homeScore > state.awayScore;
+      const draw = state.homeScore === state.awayScore;
+      const income = won ? 14 : draw ? 8 : 5;
+      const result = `${state.homeTeam.short} ${state.homeScore} × ${state.awayScore} ${state.awayTeam.short}`;
+      setCareer((current) => ({
+        ...current,
+        budget: current.budget + income,
+        fans: Math.max(
+          10_000,
+          current.fans + (won ? 7_500 : draw ? 1_800 : -2_200),
+        ),
+        history: [result, ...current.history].slice(0, 6),
+      }));
+    }
+  }, [competitionMode, screen]);
+
+  const playTone = useCallback(
+    (kind: "kick" | "goal" | "whistle" | "tackle") => {
+      if (!audioEnabledRef.current) return;
+      try {
+        const AudioCtor = window.AudioContext;
+        const audio = audioContextRef.current ?? new AudioCtor();
+        audioContextRef.current = audio;
+        if (audio.state === "suspended") void audio.resume();
+        const now = audio.currentTime;
+        const notes =
+          kind === "goal"
+            ? [330, 440, 660, 880]
+            : kind === "whistle"
+              ? [960, 1180]
+              : kind === "tackle"
+                ? [110]
+                : [150];
+        notes.forEach((frequency, index) => {
+          const oscillator = audio.createOscillator();
+          const gain = audio.createGain();
+          oscillator.type =
+            kind === "goal"
+              ? "triangle"
+              : kind === "whistle"
+                ? "sine"
+                : "square";
+          oscillator.frequency.setValueAtTime(frequency, now + index * 0.08);
+          gain.gain.setValueAtTime(0.0001, now + index * 0.08);
+          gain.gain.exponentialRampToValueAtTime(
+            kind === "goal" ? 0.055 : 0.025,
+            now + index * 0.08 + 0.012,
+          );
+          gain.gain.exponentialRampToValueAtTime(
+            0.0001,
+            now + index * 0.08 + (kind === "goal" ? 0.23 : 0.1),
+          );
+          oscillator.connect(gain);
+          gain.connect(audio.destination);
+          oscillator.start(now + index * 0.08);
+          oscillator.stop(now + index * 0.08 + 0.28);
+        });
+      } catch {
+        // Audio is an enhancement; gameplay continues if the browser blocks it.
+      }
+    },
+    [],
+  );
 
   const setGameScreen = useCallback((next: Screen) => {
     screenRef.current = next;
@@ -4138,8 +4988,16 @@ export default function FootballGame() {
       difficulty,
       false,
       gameMode,
+      homeFormation,
+      awayFormation,
+      homeTactic,
+      awayTactic,
+      activeCareerSquad,
     );
+    const selected = getPlayer(next, next.selectedId);
+    const selectedAway = getPlayer(next, next.selectedAwayId);
     engineRef.current = next;
+    resultRecordedRef.current = false;
     inputRef.current.keys.clear();
     inputRef.current.touchX = 0;
     inputRef.current.touchY = 0;
@@ -4150,8 +5008,8 @@ export default function FootballGame() {
       awayScore: 0,
       remaining: HALF_SECONDS,
       half: 1,
-      playerName: "Stadler",
-      playerNumber: 10,
+      playerName: selected?.name ?? homeTeam.name,
+      playerNumber: selected?.number ?? 10,
       stamina: 100,
       shotCharge: 0,
       message: "APITO INICIAL",
@@ -4161,16 +5019,32 @@ export default function FootballGame() {
       setPieceSide: null,
       homeCards: 0,
       awayCards: 0,
-      awayPlayerName: "Rivaldo",
-      awayPlayerNumber: 10,
+      awayPlayerName: selectedAway?.name ?? awayTeam.name,
+      awayPlayerNumber: selectedAway?.number ?? 10,
       awayStamina: 100,
       awayShotCharge: 0,
+      playerOverall: selected?.overall ?? homeTeam.rating,
+      awayPlayerOverall: selectedAway?.overall ?? awayTeam.rating,
       gameMode,
     });
     setPaused(false);
     setGameScreen("playing");
     playTone("whistle");
-  }, [awayIndex, difficulty, gameMode, homeIndex, playTone, setGameScreen]);
+  }, [
+    activeCareerSquad,
+    awayFormation,
+    awayIndex,
+    awayTactic,
+    awayTeam,
+    difficulty,
+    gameMode,
+    homeFormation,
+    homeIndex,
+    homeTactic,
+    homeTeam,
+    playTone,
+    setGameScreen,
+  ]);
 
   const goToMenu = useCallback(() => {
     const demo = createMatch(
@@ -4179,6 +5053,11 @@ export default function FootballGame() {
       difficulty,
       true,
       gameMode,
+      homeFormation,
+      awayFormation,
+      homeTactic,
+      awayTactic,
+      activeCareerSquad,
     );
     engineRef.current = demo;
     inputRef.current.keys.clear();
@@ -4189,7 +5068,18 @@ export default function FootballGame() {
     setPaused(false);
     setSettingsOpen(false);
     setGameScreen("menu");
-  }, [awayIndex, difficulty, gameMode, homeIndex, setGameScreen]);
+  }, [
+    activeCareerSquad,
+    awayFormation,
+    awayIndex,
+    awayTactic,
+    difficulty,
+    gameMode,
+    homeFormation,
+    homeIndex,
+    homeTactic,
+    setGameScreen,
+  ]);
 
   useEffect(() => {
     qualityRef.current = quality;
@@ -4208,6 +5098,11 @@ export default function FootballGame() {
       difficulty,
       true,
       gameMode,
+      homeFormation,
+      awayFormation,
+      homeTactic,
+      awayTactic,
+      activeCareerSquad,
     );
     const context = canvas.getContext("2d", { alpha: false });
     if (!context) return;
@@ -4251,7 +5146,7 @@ export default function FootballGame() {
         awayScore: state.awayScore,
         remaining: state.remaining,
         half: state.half,
-        playerName: selected?.name ?? "Stadler",
+        playerName: selected?.name ?? state.homeTeam.short,
         playerNumber: selected?.number ?? 10,
         stamina: selected?.stamina ?? 100,
         shotCharge: state.shotCharge,
@@ -4262,10 +5157,12 @@ export default function FootballGame() {
         setPieceSide: state.setPiece?.side ?? null,
         homeCards: state.stats.homeCards,
         awayCards: state.stats.awayCards,
-        awayPlayerName: selectedAway?.name ?? "Rivaldo",
+        awayPlayerName: selectedAway?.name ?? state.awayTeam.short,
         awayPlayerNumber: selectedAway?.number ?? 10,
         awayStamina: selectedAway?.stamina ?? 100,
         awayShotCharge: state.awayShotCharge,
+        playerOverall: selected?.overall ?? state.homeTeam.rating,
+        awayPlayerOverall: selectedAway?.overall ?? state.awayTeam.rating,
         gameMode: state.gameMode,
       });
     };
@@ -4445,10 +5342,7 @@ export default function FootballGame() {
         if (event.code === "Space" || event.code === "KeyC") {
           actionsRef.current.shootStart("home");
         }
-        if (
-          event.code === "KeyE" ||
-          event.code === "KeyZ"
-        ) {
+        if (event.code === "KeyE" || event.code === "KeyZ") {
           actionsRef.current.steal("home");
         }
         if (event.code === "KeyQ") {
@@ -4484,7 +5378,19 @@ export default function FootballGame() {
       window.removeEventListener("keydown", onKeyDown);
       window.removeEventListener("keyup", onKeyUp);
     };
-  }, [difficulty, homeTeam, awayTeam, gameMode, playTone, setGameScreen]);
+  }, [
+    activeCareerSquad,
+    awayFormation,
+    awayTactic,
+    difficulty,
+    homeFormation,
+    homeTactic,
+    homeTeam,
+    awayTeam,
+    gameMode,
+    playTone,
+    setGameScreen,
+  ]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -4492,26 +5398,140 @@ export default function FootballGame() {
     canvas.style.imageRendering = quality === "performance" ? "auto" : "auto";
   }, [quality]);
 
-  const cycleHome = (direction: number) => {
-    setHomeIndex((current) => {
-      let next = (current + direction + TEAMS.length) % TEAMS.length;
-      if (next === awayIndex) next = (next + direction + TEAMS.length) % TEAMS.length;
-      return next;
+  const selectCompetition = (mode: CompetitionMode) => {
+    setCompetitionMode(mode);
+    if (mode === "league" || mode === "career") {
+      const opponent = leagueTeamsFor(homeTeam).find(
+        (team) => team.id !== homeTeam.id,
+      );
+      const opponentIndex = TEAMS.findIndex((team) => team.id === opponent?.id);
+      if (opponentIndex >= 0) setAwayIndex(opponentIndex);
+    }
+    if (mode === "cup") {
+      const pool =
+        cupScope === "world"
+          ? TEAMS
+          : homeTeam.city === "Brasileirão"
+            ? TEAMS.filter((team) => team.city === "Brasileirão")
+            : TEAMS.filter((team) => team.city.startsWith("Europa"));
+      const opponent = pool.find((team) => team.id !== homeTeam.id);
+      const opponentIndex = TEAMS.findIndex((team) => team.id === opponent?.id);
+      if (opponentIndex >= 0) setAwayIndex(opponentIndex);
+    }
+  };
+
+  const resetCup = () => {
+    setCupRound(0);
+    setCupEliminated(false);
+  };
+
+  const selectCupScope = (scope: CupScope) => {
+    setCupScope(scope);
+    resetCup();
+    const pool =
+      scope === "world"
+        ? TEAMS
+        : homeTeam.city === "Brasileirão"
+          ? TEAMS.filter((team) => team.city === "Brasileirão")
+          : TEAMS.filter((team) => team.city.startsWith("Europa"));
+    const opponent = pool.find((team) => team.id !== homeTeam.id);
+    const opponentIndex = TEAMS.findIndex((team) => team.id === opponent?.id);
+    if (opponentIndex >= 0) setAwayIndex(opponentIndex);
+  };
+
+  const buyPlayer = (entry: MarketEntry) => {
+    const price = marketPrice(entry.seed[2]);
+    setCareer((current) => {
+      if (
+        current.budget < price ||
+        current.squad.some((player) => player[0] === entry.seed[0])
+      ) {
+        return current;
+      }
+      return {
+        ...current,
+        budget: current.budget - price,
+        squad: [...current.squad, entry.seed],
+        history: [
+          `Comprou ${entry.seed[0]} por €${price} mi`,
+          ...current.history,
+        ].slice(0, 6),
+      };
     });
   };
 
+  const sellPlayer = (player: SquadSeed) => {
+    if (career.squad.length <= 8) return;
+    const value = Math.max(4, Math.round(marketPrice(player[2]) * 0.58));
+    setCareer((current) => ({
+      ...current,
+      budget: current.budget + value,
+      squad: current.squad.filter((candidate) => candidate[0] !== player[0]),
+      history: [
+        `Vendeu ${player[0]} por €${value} mi`,
+        ...current.history,
+      ].slice(0, 6),
+    }));
+  };
+
+  const cycleHome = (direction: number) => {
+    let next = (homeIndex + direction + TEAMS.length) % TEAMS.length;
+    if (next === awayIndex)
+      next = (next + direction + TEAMS.length) % TEAMS.length;
+    const nextTeam = TEAMS[next];
+    setHomeIndex(next);
+    setLeagueRows(createLeagueRows(nextTeam));
+    setCupRound(0);
+    setCupEliminated(false);
+    setCareer(createCareer(nextTeam));
+    if (competitionMode === "friendly") return;
+    const pool =
+      competitionMode === "league" || competitionMode === "career"
+        ? leagueTeamsFor(nextTeam)
+        : cupScope === "world"
+          ? TEAMS
+          : nextTeam.city === "Brasileirão"
+            ? TEAMS.filter((team) => team.city === "Brasileirão")
+            : TEAMS.filter((team) => team.city.startsWith("Europa"));
+    const currentOpponentIsValid = pool.some(
+      (team) => team.id === awayTeam.id && team.id !== nextTeam.id,
+    );
+    if (currentOpponentIsValid) return;
+    const opponent = pool.find((team) => team.id !== nextTeam.id);
+    const opponentIndex = TEAMS.findIndex((team) => team.id === opponent?.id);
+    if (opponentIndex >= 0) setAwayIndex(opponentIndex);
+  };
+
   const cycleAway = (direction: number) => {
-    setAwayIndex((current) => {
-      let next = (current + direction + TEAMS.length) % TEAMS.length;
-      if (next === homeIndex) next = (next + direction + TEAMS.length) % TEAMS.length;
-      return next;
-    });
+    const pool =
+      competitionMode === "friendly"
+        ? TEAMS
+        : competitionMode === "league" || competitionMode === "career"
+          ? leagueTeamsFor(homeTeam)
+          : cupScope === "world"
+            ? TEAMS
+            : homeTeam.city === "Brasileirão"
+              ? TEAMS.filter((team) => team.city === "Brasileirão")
+              : TEAMS.filter((team) => team.city.startsWith("Europa"));
+    const available = pool.filter((team) => team.id !== homeTeam.id);
+    const currentPoolIndex = available.findIndex(
+      (team) => team.id === TEAMS[awayIndex].id,
+    );
+    const nextPoolIndex =
+      (Math.max(0, currentPoolIndex) + direction + available.length) %
+      available.length;
+    const nextIndex = TEAMS.findIndex(
+      (team) => team.id === available[nextPoolIndex]?.id,
+    );
+    if (nextIndex >= 0) setAwayIndex(nextIndex);
   };
 
   const handleJoystick = (event: ReactPointerEvent<HTMLDivElement>) => {
     const rect = event.currentTarget.getBoundingClientRect();
-    let x = (event.clientX - (rect.left + rect.width / 2)) / (rect.width * 0.36);
-    let y = (event.clientY - (rect.top + rect.height / 2)) / (rect.height * 0.36);
+    let x =
+      (event.clientX - (rect.left + rect.width / 2)) / (rect.width * 0.36);
+    let y =
+      (event.clientY - (rect.top + rect.height / 2)) / (rect.height * 0.36);
     const magnitude = Math.hypot(x, y);
     if (magnitude > 1) {
       x /= magnitude;
@@ -4586,7 +5606,10 @@ export default function FootballGame() {
                 <TeamBadge team={homeTeam} compact />
                 <span>{homeTeam.short}</span>
                 {hud.homeCards > 0 && (
-                  <small className="card-total"><i />{hud.homeCards}</small>
+                  <small className="card-total">
+                    <i />
+                    {hud.homeCards}
+                  </small>
                 )}
               </div>
               <strong>{hud.homeScore}</strong>
@@ -4597,7 +5620,10 @@ export default function FootballGame() {
               <strong>{hud.awayScore}</strong>
               <div className="score-team score-team--away">
                 {hud.awayCards > 0 && (
-                  <small className="card-total"><i />{hud.awayCards}</small>
+                  <small className="card-total">
+                    <i />
+                    {hud.awayCards}
+                  </small>
                 )}
                 <span>{awayTeam.short}</span>
                 <TeamBadge team={awayTeam} compact />
@@ -4659,7 +5685,7 @@ export default function FootballGame() {
               </div>
               <div className="player-info">
                 <strong>{hud.playerName}</strong>
-                <span>JOGADOR 1</span>
+                <span>JOGADOR 1 • OVR {hud.playerOverall}</span>
                 <div className="stamina-track">
                   <i
                     style={{
@@ -4688,7 +5714,7 @@ export default function FootballGame() {
                 </div>
                 <div className="player-info">
                   <strong>{hud.awayPlayerName}</strong>
-                  <span>JOGADOR 2</span>
+                  <span>JOGADOR 2 • OVR {hud.awayPlayerOverall}</span>
                   <div className="stamina-track">
                     <i
                       style={{
@@ -4733,34 +5759,76 @@ export default function FootballGame() {
               <div className="keyboard-guide keyboard-guide--two">
                 <div className="control-cluster control-cluster--p1">
                   <b>J1</b>
-                  <span><kbd>WASD</kbd> mover</span>
-                  <span><kbd>SHIFT</kbd> correr</span>
-                  <span><kbd>F</kbd> passe</span>
-                  <span><kbd>ESPAÇO</kbd> chute</span>
-                  <span><kbd>E</kbd> bote/roubar</span>
-                  <span><kbd>Q</kbd> trocar</span>
-                  <span><kbd>R</kbd> carrinho</span>
+                  <span>
+                    <kbd>WASD</kbd> mover
+                  </span>
+                  <span>
+                    <kbd>SHIFT</kbd> correr
+                  </span>
+                  <span>
+                    <kbd>F</kbd> passe
+                  </span>
+                  <span>
+                    <kbd>ESPAÇO</kbd> chute
+                  </span>
+                  <span>
+                    <kbd>E</kbd> bote/roubar
+                  </span>
+                  <span>
+                    <kbd>Q</kbd> trocar
+                  </span>
+                  <span>
+                    <kbd>R</kbd> carrinho
+                  </span>
                 </div>
                 <div className="control-cluster control-cluster--p2">
                   <b>J2</b>
-                  <span><kbd>SETAS</kbd> mover</span>
-                  <span><kbd>ENTER</kbd> correr</span>
-                  <span><kbd>K</kbd> passe</span>
-                  <span><kbd>L</kbd> chute</span>
-                  <span><kbd>J</kbd> bote/roubar</span>
-                  <span><kbd>I</kbd> trocar</span>
-                  <span><kbd>U</kbd> carrinho</span>
+                  <span>
+                    <kbd>SETAS</kbd> mover
+                  </span>
+                  <span>
+                    <kbd>ENTER</kbd> correr
+                  </span>
+                  <span>
+                    <kbd>K</kbd> passe
+                  </span>
+                  <span>
+                    <kbd>L</kbd> chute
+                  </span>
+                  <span>
+                    <kbd>J</kbd> bote/roubar
+                  </span>
+                  <span>
+                    <kbd>I</kbd> trocar
+                  </span>
+                  <span>
+                    <kbd>U</kbd> carrinho
+                  </span>
                 </div>
               </div>
             ) : (
               <div className="keyboard-guide">
-                <span><kbd>WASD</kbd> mover</span>
-                <span><kbd>SHIFT</kbd> correr</span>
-                <span><kbd>F</kbd> passe</span>
-                <span><kbd>ESPAÇO</kbd> chute</span>
-                <span><kbd>E</kbd> bote/roubar</span>
-                <span><kbd>Q</kbd> trocar</span>
-                <span><kbd>R</kbd> carrinho</span>
+                <span>
+                  <kbd>WASD</kbd> mover
+                </span>
+                <span>
+                  <kbd>SHIFT</kbd> correr
+                </span>
+                <span>
+                  <kbd>F</kbd> passe
+                </span>
+                <span>
+                  <kbd>ESPAÇO</kbd> chute
+                </span>
+                <span>
+                  <kbd>E</kbd> bote/roubar
+                </span>
+                <span>
+                  <kbd>Q</kbd> trocar
+                </span>
+                <span>
+                  <kbd>R</kbd> carrinho
+                </span>
               </div>
             )}
 
@@ -4868,7 +5936,9 @@ export default function FootballGame() {
           <div className="menu-screen">
             <div className="menu-panel">
               <div className="eyebrow">
-                <span><i /> ORIGINAL</span>
+                <span>
+                  <i /> ORIGINAL
+                </span>
                 <span>FÍSICA PRO</span>
                 <span>60 FPS</span>
               </div>
@@ -4877,9 +5947,59 @@ export default function FootballGame() {
                 <em>OUTRO NÍVEL.</em>
               </h1>
               <p>
-                Escolha seu time, entre em campo e domine a partida. Sem
-                download e otimizado até para computadores mais simples.
+                Monte a estratégia, evolua o elenco e entre em campo. Futebol
+                8×8 leve, responsivo e pensado para rodar com FPS alto.
               </p>
+
+              <nav
+                className="competition-tabs"
+                aria-label="Modos de competição"
+              >
+                <button
+                  type="button"
+                  data-active={competitionMode === "friendly"}
+                  onClick={() => selectCompetition("friendly")}
+                >
+                  <Target />
+                  <span>
+                    <b>Amistoso</b>
+                    <small>Partida rápida</small>
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  data-active={competitionMode === "league"}
+                  onClick={() => selectCompetition("league")}
+                >
+                  <BarChart3 />
+                  <span>
+                    <b>Liga</b>
+                    <small>Pontos corridos</small>
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  data-active={competitionMode === "cup"}
+                  onClick={() => selectCompetition("cup")}
+                >
+                  <Crown />
+                  <span>
+                    <b>Copa</b>
+                    <small>Mata-mata</small>
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  data-active={competitionMode === "career"}
+                  onClick={() => selectCompetition("career")}
+                >
+                  <BriefcaseBusiness />
+                  <span>
+                    <b>Carreira</b>
+                    <small>Clube e mercado</small>
+                  </span>
+                </button>
+              </nav>
 
               <div className="matchup-selector">
                 <div className="team-choice">
@@ -4890,11 +6010,13 @@ export default function FootballGame() {
                   >
                     <ChevronLeft />
                   </button>
-                  <TeamBadge team={homeTeam} />
+                  <TeamFlag team={homeTeam} />
                   <div>
                     <small>SEU TIME</small>
                     <strong>{homeTeam.name}</strong>
-                    <span>{homeTeam.city} • ATA {homeTeam.rating}</span>
+                    <span>
+                      {homeTeam.flag} {homeTeam.city} • OVR {homeTeam.rating}
+                    </span>
                   </div>
                   <button
                     type="button"
@@ -4913,13 +6035,15 @@ export default function FootballGame() {
                   >
                     <ChevronLeft />
                   </button>
-                  <TeamBadge team={awayTeam} />
+                  <TeamFlag team={awayTeam} />
                   <div>
                     <small>
                       {gameMode === "local2p" ? "JOGADOR 2" : "ADVERSÁRIO"}
                     </small>
                     <strong>{awayTeam.name}</strong>
-                    <span>{awayTeam.city} • ATA {awayTeam.rating}</span>
+                    <span>
+                      {awayTeam.flag} {awayTeam.city} • OVR {awayTeam.rating}
+                    </span>
                   </div>
                   <button
                     type="button"
@@ -4930,6 +6054,206 @@ export default function FootballGame() {
                   </button>
                 </div>
               </div>
+
+              {competitionMode === "league" && (
+                <section className="mode-dashboard league-dashboard">
+                  <div className="mode-dashboard__heading">
+                    <span>
+                      <Landmark /> {leagueNameFor(homeTeam)}
+                    </span>
+                    <small>{standings[0]?.played ?? 0} rodada(s)</small>
+                  </div>
+                  <div
+                    className="mini-table"
+                    role="table"
+                    aria-label="Classificação da liga"
+                  >
+                    {standings.slice(0, 5).map((row, index) => {
+                      const team = TEAMS.find(
+                        (candidate) => candidate.id === row.teamId,
+                      );
+                      return (
+                        <div
+                          key={row.teamId}
+                          role="row"
+                          data-user={row.teamId === homeTeam.id}
+                        >
+                          <b>{index + 1}</b>
+                          <TeamBadge team={team ?? homeTeam} compact />
+                          <span>{team?.short ?? row.teamId}</span>
+                          <small>{row.played}J</small>
+                          <strong>{row.points} pts</strong>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </section>
+              )}
+
+              {competitionMode === "cup" && (
+                <section className="mode-dashboard cup-dashboard">
+                  <div className="mode-dashboard__heading">
+                    <span>
+                      <Trophy /> {cupNameFor(homeTeam, cupScope)}
+                    </span>
+                    <small>
+                      {cupEliminated
+                        ? "Eliminado"
+                        : cupRound === 3
+                          ? "Campeão"
+                          : "Em disputa"}
+                    </small>
+                  </div>
+                  <div className="cup-switch" aria-label="Tipo de copa">
+                    <button
+                      type="button"
+                      data-active={cupScope === "continental"}
+                      onClick={() => selectCupScope("continental")}
+                    >
+                      Continental
+                    </button>
+                    <button
+                      type="button"
+                      data-active={cupScope === "world"}
+                      onClick={() => selectCupScope("world")}
+                    >
+                      Mundial
+                    </button>
+                  </div>
+                  <div className="cup-path">
+                    {["Quartas", "Semifinal", "Final", "Taça"].map(
+                      (round, index) => (
+                        <span
+                          key={round}
+                          data-complete={index < cupRound}
+                          data-current={!cupEliminated && index === cupRound}
+                        >
+                          {index === 3 ? <Trophy /> : index + 1}
+                          <small>{round}</small>
+                        </span>
+                      ),
+                    )}
+                  </div>
+                  {(cupEliminated || cupRound === 3) && (
+                    <button
+                      type="button"
+                      className="inline-action"
+                      onClick={resetCup}
+                    >
+                      <RotateCcw /> Nova campanha
+                    </button>
+                  )}
+                </section>
+              )}
+
+              {competitionMode === "career" && (
+                <section className="mode-dashboard career-dashboard">
+                  <div className="career-metric">
+                    <WalletCards />
+                    <span>
+                      <small>ORÇAMENTO</small>
+                      <b>€ {career.budget} mi</b>
+                    </span>
+                  </div>
+                  <div className="career-metric">
+                    <Users />
+                    <span>
+                      <small>TORCIDA</small>
+                      <b>{career.fans.toLocaleString("pt-BR")}</b>
+                    </span>
+                  </div>
+                  <div className="career-metric">
+                    <Shield />
+                    <span>
+                      <small>ELENCO</small>
+                      <b>{career.squad.length} atletas</b>
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    className="market-button"
+                    onClick={() => setMarketOpen(true)}
+                  >
+                    <ShoppingCart /> Mercado
+                  </button>
+                </section>
+              )}
+
+              <section
+                className="tactics-config"
+                aria-label="Configuração tática"
+              >
+                <div>
+                  <strong>
+                    {gameMode === "local2p" ? "PLANO J1" : "SEU PLANO"}
+                  </strong>
+                  <label>
+                    <span>Formação 8×8</span>
+                    <select
+                      value={homeFormation}
+                      onChange={(event) =>
+                        setHomeFormation(event.target.value as FormationId)
+                      }
+                    >
+                      {Object.values(FORMATIONS).map((formation) => (
+                        <option value={formation.id} key={formation.id}>
+                          {formation.label} · {formation.description}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label>
+                    <span>Postura</span>
+                    <select
+                      value={homeTactic}
+                      onChange={(event) =>
+                        setHomeTactic(event.target.value as TacticId)
+                      }
+                    >
+                      {Object.values(TACTICS).map((tactic) => (
+                        <option value={tactic.id} key={tactic.id}>
+                          {tactic.label} · {tactic.description}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
+                <div>
+                  <strong>
+                    {gameMode === "local2p" ? "PLANO J2" : "PLANO RIVAL"}
+                  </strong>
+                  <label>
+                    <span>Formação 8×8</span>
+                    <select
+                      value={awayFormation}
+                      onChange={(event) =>
+                        setAwayFormation(event.target.value as FormationId)
+                      }
+                    >
+                      {Object.values(FORMATIONS).map((formation) => (
+                        <option value={formation.id} key={formation.id}>
+                          {formation.label} · {formation.description}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label>
+                    <span>Postura</span>
+                    <select
+                      value={awayTactic}
+                      onChange={(event) =>
+                        setAwayTactic(event.target.value as TacticId)
+                      }
+                    >
+                      {Object.values(TACTICS).map((tactic) => (
+                        <option value={tactic.id} key={tactic.id}>
+                          {tactic.label} · {tactic.description}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
+              </section>
 
               <div className="difficulty-row mode-row">
                 <span>MODO DE JOGO</span>
@@ -4951,7 +6275,9 @@ export default function FootballGame() {
               </div>
 
               <div className="difficulty-row">
-                <span>{gameMode === "local2p" ? "NÍVEL DA IA" : "DIFICULDADE"}</span>
+                <span>
+                  {gameMode === "local2p" ? "NÍVEL DA IA" : "DIFICULDADE"}
+                </span>
                 <RadioGroup
                   value={difficulty}
                   onValueChange={(value) => setDifficulty(value as Difficulty)}
@@ -4972,13 +6298,16 @@ export default function FootballGame() {
               </div>
 
               <div className="menu-actions">
-                <button type="button" className="play-button" onClick={startMatch}>
+                <button
+                  type="button"
+                  className="play-button"
+                  onClick={startMatch}
+                >
                   <Play fill="currentColor" size={21} />
                   JOGAR AGORA
                   <span>
-                    {gameMode === "local2p"
-                      ? "2 jogadores • 2 tempos de 3 min"
-                      : "2 tempos de 3 minutos"}
+                    {gameMode === "local2p" ? "2 jogadores • " : ""}
+                    partida completa: 1min50
                   </span>
                 </button>
                 <button
@@ -4992,23 +6321,39 @@ export default function FootballGame() {
               </div>
 
               <div className="feature-strip">
-                <span><Zap /> Física, curva e bloqueios</span>
-                <span><Shield /> 11 contra 11 e impedimento</span>
-                <span><Gauge /> 2 tempos e troca de lados</span>
+                <span>
+                  <Zap /> Física e OVR individual
+                </span>
+                <span>
+                  <Shield /> IA presa à formação
+                </span>
+                <span>
+                  <Gauge /> 2 tempos de 55 segundos
+                </span>
               </div>
               <small className="original-note">
-                Projeto independente, sem escudos oficiais ou vínculo com clubes e ligas.
+                Projeto independente. Identidades visuais estilizadas pelas
+                cores e bandeiras; sem redistribuição de escudos licenciados.
               </small>
             </div>
 
             <div className="menu-callout">
               <span>CRAQUE EM CAMPO</span>
-              <strong>STADLER</strong>
+              <strong>{featuredPlayer[0]}</strong>
               <div>
-                <b>10</b>
-                <p>Drible <i style={{ width: "91%" }} /></p>
-                <p>Chute <i style={{ width: "88%" }} /></p>
-                <p>Passe <i style={{ width: "93%" }} /></p>
+                <b>{featuredPlayer[2]}</b>
+                <p>
+                  Velocidade{" "}
+                  <i style={{ width: featuredAttributes.pace + "%" }} />
+                </p>
+                <p>
+                  Chute{" "}
+                  <i style={{ width: featuredAttributes.shooting + "%" }} />
+                </p>
+                <p>
+                  Passe{" "}
+                  <i style={{ width: featuredAttributes.passing + "%" }} />
+                </p>
               </div>
             </div>
           </div>
@@ -5020,15 +6365,19 @@ export default function FootballGame() {
               <Trophy className="finish-trophy" />
               <span>FIM DE JOGO</span>
               <h2>
-                {hud.homeScore === hud.awayScore
-                  ? "EMPATE!"
-                  : hud.gameMode === "local2p"
-                    ? hud.homeScore > hud.awayScore
-                      ? "JOGADOR 1 VENCEU!"
-                      : "JOGADOR 2 VENCEU!"
-                    : hud.homeScore > hud.awayScore
-                      ? "VITÓRIA!"
-                      : "QUASE LÁ!"}
+                {competitionMode === "cup" && hud.homeScore === hud.awayScore
+                  ? homePossession >= 50
+                    ? "CLASSIFICADO NOS PÊNALTIS!"
+                    : "ELIMINADO NOS PÊNALTIS"
+                  : hud.homeScore === hud.awayScore
+                    ? "EMPATE!"
+                    : hud.gameMode === "local2p"
+                      ? hud.homeScore > hud.awayScore
+                        ? "JOGADOR 1 VENCEU!"
+                        : "JOGADOR 2 VENCEU!"
+                      : hud.homeScore > hud.awayScore
+                        ? "VITÓRIA!"
+                        : "QUASE LÁ!"}
               </h2>
               <div className="final-score">
                 <div>
@@ -5044,18 +6393,46 @@ export default function FootballGame() {
                 </div>
               </div>
               <div className="stats-table" aria-label="Estatísticas da partida">
-                <div><b>{finalStats.homeShots}</b><span>Chutes</span><b>{finalStats.awayShots}</b></div>
-                <div><b>{finalStats.homePasses}</b><span>Passes</span><b>{finalStats.awayPasses}</b></div>
-                <div><b>{homePossession}%</b><span>Posse de bola</span><b>{awayPossession}%</b></div>
-                <div><b>{finalStats.homeFouls}</b><span>Faltas</span><b>{finalStats.awayFouls}</b></div>
-                <div><b>{finalStats.homeOffsides}</b><span>Impedimentos</span><b>{finalStats.awayOffsides}</b></div>
-                <div><b>{finalStats.homeCards}</b><span>Cartões</span><b>{finalStats.awayCards}</b></div>
+                <div>
+                  <b>{finalStats.homeShots}</b>
+                  <span>Chutes</span>
+                  <b>{finalStats.awayShots}</b>
+                </div>
+                <div>
+                  <b>{finalStats.homePasses}</b>
+                  <span>Passes</span>
+                  <b>{finalStats.awayPasses}</b>
+                </div>
+                <div>
+                  <b>{homePossession}%</b>
+                  <span>Posse de bola</span>
+                  <b>{awayPossession}%</b>
+                </div>
+                <div>
+                  <b>{finalStats.homeFouls}</b>
+                  <span>Faltas</span>
+                  <b>{finalStats.awayFouls}</b>
+                </div>
+                <div>
+                  <b>{finalStats.homeOffsides}</b>
+                  <span>Impedimentos</span>
+                  <b>{finalStats.awayOffsides}</b>
+                </div>
+                <div>
+                  <b>{finalStats.homeCards}</b>
+                  <span>Cartões</span>
+                  <b>{finalStats.awayCards}</b>
+                </div>
               </div>
               <div className="finish-actions">
                 <button type="button" className="play-button" onClick={restart}>
                   <RotateCcw size={19} /> REVANCHE
                 </button>
-                <button type="button" className="secondary-button" onClick={goToMenu}>
+                <button
+                  type="button"
+                  className="secondary-button"
+                  onClick={goToMenu}
+                >
                   MENU PRINCIPAL
                 </button>
               </div>
@@ -5129,6 +6506,85 @@ export default function FootballGame() {
             onClick={() => toggleSettings(false)}
           >
             SALVAR E VOLTAR
+          </button>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={marketOpen} onOpenChange={setMarketOpen}>
+        <DialogContent className="game-dialog market-dialog">
+          <DialogHeader>
+            <DialogTitle>Mercado de transferências</DialogTitle>
+            <DialogDescription>
+              Contrate atletas para disputar vaga pelo OVR. Saldo: €{" "}
+              {career.budget} mi.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="market-columns">
+            <section>
+              <h3>
+                <ShoppingCart /> Disponíveis
+              </h3>
+              <div className="transfer-list">
+                {transferMarket.map((entry) => {
+                  const price = marketPrice(entry.seed[2]);
+                  return (
+                    <div key={`${entry.team.id}-${entry.seed[0]}`}>
+                      <TeamBadge team={entry.team} compact />
+                      <span>
+                        <b>{entry.seed[0]}</b>
+                        <small>
+                          {entry.seed[3]} • {entry.team.short}
+                        </small>
+                      </span>
+                      <strong>OVR {entry.seed[2]}</strong>
+                      <button
+                        type="button"
+                        disabled={career.budget < price}
+                        onClick={() => buyPlayer(entry)}
+                      >
+                        €{price} mi
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            </section>
+            <section>
+              <h3>
+                <Users /> Seu elenco
+              </h3>
+              <div className="transfer-list squad-list">
+                {[...career.squad]
+                  .sort((a, b) => b[2] - a[2])
+                  .map((player) => (
+                    <div key={player[0]}>
+                      <span className="squad-number">{player[1]}</span>
+                      <span>
+                        <b>{player[0]}</b>
+                        <small>{player[3] ?? "MF"}</small>
+                      </span>
+                      <strong>OVR {player[2]}</strong>
+                      <button
+                        type="button"
+                        disabled={career.squad.length <= 8}
+                        onClick={() => sellPlayer(player)}
+                      >
+                        Vender
+                      </button>
+                    </div>
+                  ))}
+              </div>
+            </section>
+          </div>
+          <small className="market-hint">
+            Os oito melhores por posição entram automaticamente na escalação.
+          </small>
+          <button
+            type="button"
+            className="dialog-done"
+            onClick={() => setMarketOpen(false)}
+          >
+            CONFIRMAR ELENCO
           </button>
         </DialogContent>
       </Dialog>
