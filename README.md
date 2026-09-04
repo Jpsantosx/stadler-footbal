@@ -8,7 +8,7 @@ Versão publicada: [stadler-football-3d.joaopedrostadl554190.chatgpt.site](https
 
 ## Recursos
 
-- 11 contra 11 com clubes brasileiros e europeus
+- 8 contra 8 com clubes brasileiros e europeus
 - modo solo contra a IA e modo local para 2 jogadores
 - dois tempos de 3 minutos e troca de lados no intervalo
 - saída de bola no círculo central após início, intervalo e gols
