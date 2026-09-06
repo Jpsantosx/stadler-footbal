@@ -4,7 +4,7 @@ Jogo de futebol 8×8 para navegador, construído com React, TypeScript e Canvas 
 
 ## Jogar e ver o código
 
-- Jogo publicado: [stadler-football-3d.joaopedrostadl554190.chatgpt.site](https://stadler-football-3d.joaopedrostadl554190.chatgpt.site)
+- Jogo público: [stadler-football-3d.joaopedrostadl554190.chatgpt.site](https://stadler-football-3d.joaopedrostadl554190.chatgpt.site)
 - Código-fonte: [github.com/Jpsantosx/stadler-footbal](https://github.com/Jpsantosx/stadler-footbal)
 
 ## O que foi implementado
@@ -22,9 +22,12 @@ Jogo de futebol 8×8 para navegador, construído com React, TypeScript e Canvas 
 
 ### OVR e elencos
 
-- OVR individual e OVR do time influenciam diretamente velocidade, chute, passe, defesa, controle e disputas
+- velocidade, passe, finalização, domínio, desarme, carrinho e reação do goleiro são calculados pelo OVR e pelos atributos do atleta
+- cada disputa compara diretamente os jogadores envolvidos: defensor contra o controle do atacante e finalizador contra o goleiro
+- o OVR do time é a média real dos oito titulares e também compara a força dos dois elencos; equipes mais qualificadas ficam perceptivelmente mais fortes sem tornar o resultado automático
 - escalações compactas com 8 atletas de 24 clubes brasileiros e europeus
-- nome, número, OVR e atributos aparecem no HUD e na tela de seleção
+- seletor de clubes com filtros para Brasileirão e Europa, nome, liga e OVR da escalação
+- tabela completa de oito clubes com jogos, vitórias, empates, derrotas, saldo e pontos
 - bandeiras de país, flâmulas, uniformes e emblemas estilizados pelas cores de cada clube
 
 Os dados de elenco são um recorte editável no objeto `ROSTERS`, em `app/football-game.tsx`. Transferências reais mudam durante a temporada, então o projeto não promete atualização automática em tempo real.

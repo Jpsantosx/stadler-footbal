@@ -40,6 +40,14 @@ import {
 } from "@/components/ui/dialog";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Switch } from "@/components/ui/switch";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 
 type Side = "home" | "away";
 type Role = "GK" | "DF" | "MF" | "FW";
@@ -49,6 +57,7 @@ type Difficulty = "easy" | "normal" | "hard";
 type GameMode = "solo" | "local2p";
 type CompetitionMode = "friendly" | "league" | "cup" | "career";
 type CupScope = "continental" | "world";
+type TeamRegionFilter = "all" | "brazil" | "europe";
 type FormationId = "2-3-2" | "3-2-2" | "2-2-3";
 type TacticId = "balanced" | "attacking" | "defensive" | "counter";
 type SetPieceKind =
@@ -987,6 +996,37 @@ function lineupFor(squad: SquadSeed[], formation: FormationDefinition) {
   });
 }
 
+function lineupOverall(
+  team: Team,
+  formationId: FormationId = "2-3-2",
+  squadOverride?: SquadSeed[],
+) {
+  const starters = lineupFor(
+    rosterFor(team, squadOverride),
+    FORMATIONS[formationId],
+  );
+  const average =
+    starters.reduce((total, player) => total + player[2], 0) /
+    Math.max(1, starters.length);
+  return Math.round(average);
+}
+
+function ballControlRating(player: Player) {
+  return player.passing * 0.48 + player.overall * 0.34 + player.pace * 0.18;
+}
+
+function controlShieldDuration(player: Player) {
+  return clamp(
+    0.27 + (ballControlRating(player) - 70) * 0.008,
+    0.27,
+    0.55,
+  );
+}
+
+function duelModifier(activeAttribute: number, rivalAttribute: number) {
+  return clamp((activeAttribute - rivalAttribute) * 0.009, -0.22, 0.22);
+}
+
 function buildPlayers(
   homeTeam: Team,
   awayTeam: Team,
@@ -1181,10 +1221,73 @@ function attackingSideAtGoalLine(state: MatchState, rightGoal: boolean): Side {
   return state.homeAttacksRight ? "away" : "home";
 }
 
+function matchTeamOverall(state: MatchState, side: Side) {
+  const squad = state.players.filter((player) => player.side === side);
+  return (
+    squad.reduce((total, player) => total + player.overall, 0) /
+    Math.max(1, squad.length)
+  );
+}
+
 function teamAbility(state: MatchState, side: Side) {
-  const rating =
-    side === "home" ? state.homeTeam.rating : state.awayTeam.rating;
-  return clamp(0.95 + (rating - 84) * 0.012, 0.95, 1.04);
+  const ownOverall = matchTeamOverall(state, side);
+  const rivalOverall = matchTeamOverall(
+    state,
+    side === "home" ? "away" : "home",
+  );
+  return clamp(
+    0.97 + (ownOverall - 82) * 0.004 + (ownOverall - rivalOverall) * 0.005,
+    0.86,
+    1.08,
+  );
+}
+
+function accuratePassTarget(
+  state: MatchState,
+  passer: Player,
+  targetX: number,
+  targetY: number,
+) {
+  const nearestPressure = Math.min(
+    12,
+    ...state.players
+      .filter((player) => player.side !== passer.side && !player.sentOff)
+      .map((player) => distance(passer.x, passer.y, player.x, player.y)),
+  );
+  const pressure = clamp((7 - nearestPressure) / 7, 0, 1);
+  const error = clamp(
+    (95 - passer.passing) * 0.055 * (1 + pressure * 0.85),
+    0.1,
+    2.65,
+  );
+  return {
+    x: targetX + (random(state) - 0.5) * error * 0.55,
+    y: clamp(targetY + (random(state) - 0.5) * error, 2, FIELD_H - 2),
+  };
+}
+
+function finishingTargetY(
+  state: MatchState,
+  shooter: Player,
+  desiredY: number,
+  baseSpread: number,
+) {
+  const keeper = state.players.find(
+    (player) =>
+      player.side !== shooter.side && player.role === "GK" && !player.sentOff,
+  );
+  const keeperOverall = keeper?.overall ?? 78;
+  const duelScale = clamp(
+    1 - (shooter.shooting - 75) * 0.018 +
+      (keeperOverall - shooter.shooting) * 0.012,
+    0.48,
+    1.72,
+  );
+  return clamp(
+    desiredY + (random(state) - 0.5) * baseSpread * duelScale,
+    GOAL_TOP + 0.7,
+    GOAL_BOTTOM - 0.7,
+  );
 }
 
 function bestKickoffPlayer(state: MatchState, side: Side) {
@@ -1314,15 +1417,14 @@ function kickBall(
         !candidate.sentOff,
     );
     if (opposingKeeper) {
-      const keeperTeam =
-        opposingKeeper.side === "home" ? state.homeTeam : state.awayTeam;
+      const keeperEdge = opposingKeeper.overall - player.shooting;
       opposingKeeper.keeperReactionTimer = clamp(
-        0.22 -
-          (keeperTeam.rating - 80) * 0.0035 -
-          (opposingKeeper.overall - 80) * 0.002 +
+        0.205 -
+          keeperEdge * 0.0022 -
+          (teamAbility(state, opposingKeeper.side) - 1) * 0.16 +
           (random(state) - 0.5) * 0.045,
-        0.11,
-        0.24,
+        0.105,
+        0.26,
       );
       opposingKeeper.keeperCommitTimer = 0;
     }
@@ -1455,11 +1557,17 @@ function passBall(state: MatchState, side: Side = "home") {
     return;
   }
   const lead = 0.28;
-  kickBall(
+  const passTarget = accuratePassTarget(
     state,
     owner,
     target.x + target.vx * lead,
     target.y + target.vy * lead,
+  );
+  kickBall(
+    state,
+    owner,
+    passTarget.x,
+    passTarget.y,
     31 * teamAbility(state, side) * playerAttributeFactor(owner.passing),
     "pass",
   );
@@ -1484,10 +1592,16 @@ function releaseShot(state: MatchState, side: Side = "home") {
   }
   const placed = charge < 0.42;
   const powerful = charge > 0.78;
-  const aimY = clamp(
+  const desiredY = clamp(
     32 + owner.facingY * (placed ? 13 : 10),
     GOAL_TOP + 0.8,
     GOAL_BOTTOM - 0.8,
+  );
+  const aimY = finishingTargetY(
+    state,
+    owner,
+    desiredY,
+    placed ? 2.6 : powerful ? 5 : 3.7,
   );
   const power =
     (placed ? 45 : powerful ? 63 : 51 + charge * 8) *
@@ -1788,6 +1902,20 @@ function executeSetPiece(state: MatchState, action: "pass" | "shot") {
     targetY = target?.y ?? piece.spotY;
     power = 30;
     kickKind = "pass";
+  }
+
+  if (kickKind === "shot") {
+    const spread =
+      piece.kind === "penalty" ? 2.7 : piece.kind === "freeKick" ? 4.2 : 4.8;
+    targetY = finishingTargetY(state, taker, targetY, spread);
+    power *=
+      teamAbility(state, taker.side) * playerAttributeFactor(taker.shooting);
+  } else {
+    const passTarget = accuratePassTarget(state, taker, targetX, targetY);
+    targetX = passTarget.x;
+    targetY = passTarget.y;
+    power *=
+      teamAbility(state, taker.side) * playerAttributeFactor(taker.passing);
   }
 
   state.setPiece = null;
@@ -2138,7 +2266,7 @@ function resolveStealAttempts(state: MatchState, demo: boolean) {
         state.ball.vx = 0;
         state.ball.vy = 0;
         state.ball.vz = 0;
-        stealer.controlShield = 0.42;
+        stealer.controlShield = controlShieldDuration(stealer);
         setMessage(state, "ANTECIPAÇÃO PERFEITA", 0.58);
       } else {
         state.ball.vx = stealer.facingX * 15 + state.ball.vx * 0.18;
@@ -2184,7 +2312,10 @@ function resolveStealAttempts(state: MatchState, demo: boolean) {
       ) < 0.42;
     const shieldPenalty = carrier.controlShield > 0 ? 0.22 : 0;
     const duelAdvantage =
-      (stealer.defending - Math.max(carrier.overall, carrier.pace)) * 0.008;
+      duelModifier(stealer.defending, ballControlRating(carrier)) +
+      (teamAbility(state, stealer.side) -
+        teamAbility(state, carrier.side)) *
+        0.32;
     const cleanChance = clamp(
       0.62 +
         Math.max(0, alignment) * 0.2 +
@@ -2205,7 +2336,10 @@ function resolveStealAttempts(state: MatchState, demo: boolean) {
       state.ball.vx = 0;
       state.ball.vy = 0;
       state.ball.vz = 0;
-      stealer.controlShield = 0.52;
+      stealer.controlShield = Math.min(
+        0.62,
+        controlShieldDuration(stealer) + 0.07,
+      );
       carrier.controlShield = 0;
       carrier.stumbleTimer = fromBehind ? 0.28 : 0.17;
       carrier.vx *= 0.45;
@@ -2361,7 +2495,10 @@ function resolveSlideTackles(state: MatchState, demo: boolean) {
       0.78 -
         (fromBehind ? 0.34 : 0) -
         (victim.controlShield > 0 ? 0.17 : 0) +
-        (slider.defending - Math.max(victim.overall, victim.pace)) * 0.007,
+        duelModifier(slider.defending, ballControlRating(victim)) +
+        (teamAbility(state, slider.side) -
+          teamAbility(state, victim.side)) *
+          0.28,
       0.25,
       0.86,
     );
@@ -2856,11 +2993,7 @@ function aiTarget(
       );
       const openCorner =
         (opposingKeeper?.y ?? 32) < 32 ? GOAL_BOTTOM - 1.2 : GOAL_TOP + 1.2;
-      const targetY = clamp(
-        openCorner + (random(state) - 0.5) * 3.8,
-        GOAL_TOP + 0.7,
-        GOAL_BOTTOM - 0.7,
-      );
+      const targetY = finishingTargetY(state, player, openCorner, 4.1);
       state.lastShotStyle =
         random(state) > 0.62 ? "CHUTE COLOCADO" : "FINALIZAÇÃO";
       kickBall(
@@ -2868,7 +3001,9 @@ function aiTarget(
         player,
         goalX,
         targetY,
-        (43 + random(state) * 8) * playerAttributeFactor(player.shooting),
+        (43 + random(state) * 8) *
+          teamAbility(state, player.side) *
+          playerAttributeFactor(player.shooting),
         "shot",
         4.2 + random(state) * 2.4,
       );
@@ -2884,12 +3019,20 @@ function aiTarget(
         if (isOffsidePosition(state, player, target)) {
           awardOffside(state, player, target);
         } else {
-          kickBall(
+          const passTarget = accuratePassTarget(
             state,
             player,
             target.x,
             target.y,
-            30 * playerAttributeFactor(player.passing),
+          );
+          kickBall(
+            state,
+            player,
+            passTarget.x,
+            passTarget.y,
+            30 *
+              teamAbility(state, player.side) *
+              playerAttributeFactor(player.passing),
             "pass",
           );
         }
@@ -3288,7 +3431,8 @@ function updateBall(state: MatchState, dt: number, demo: boolean) {
       state.ball.vy = 0;
       state.ball.z = pickup.role === "GK" ? 0.7 : 0.12;
       state.ball.vz = 0;
-      pickup.controlShield = pickup.role === "GK" ? 0.7 : 0.38;
+      pickup.controlShield =
+        pickup.role === "GK" ? 0.7 : controlShieldDuration(pickup);
       if (pickup.role === "GK") pickup.decisionCooldown = 0.72;
       if (pickup.side === "home" && pickup.role !== "GK") {
         state.selectedId = pickup.id;
@@ -3330,7 +3474,8 @@ function updateSteals(state: MatchState, dt: number, demo: boolean) {
     ) {
       const base =
         (player.side === "away" && state.difficulty === "hard" ? 0.7 : 0.42) *
-        playerAttributeFactor(player.defending);
+        playerAttributeFactor(player.defending) *
+        teamAbility(state, player.side);
       if (random(state) < dt * base) {
         player.tackleCooldown = 0.9;
         const ownerToDefenderX = player.x - owner.x;
@@ -3347,7 +3492,10 @@ function updateSteals(state: MatchState, dt: number, demo: boolean) {
         const cleanChance = clamp(
           (player.side === "away" && state.difficulty === "hard" ? 0.9 : 0.82) -
             (fromBehind ? 0.27 : 0) +
-            (player.defending - Math.max(owner.overall, owner.pace)) * 0.007,
+            duelModifier(player.defending, ballControlRating(owner)) +
+            (teamAbility(state, player.side) -
+              teamAbility(state, owner.side)) *
+              0.28,
           0.46,
           0.92,
         );
@@ -3358,7 +3506,7 @@ function updateSteals(state: MatchState, dt: number, demo: boolean) {
           state.ball.lastPlayerId = player.id;
           state.ball.z = 0.12;
           state.ball.vz = 0;
-          player.controlShield = 0.28;
+          player.controlShield = controlShieldDuration(player);
           if (!demo && player.side === "home") state.selectedId = player.id;
           if (!demo && player.side === "away" && state.gameMode === "local2p") {
             state.selectedAwayId = player.id;
@@ -4588,13 +4736,32 @@ function cupNameFor(team: Team, scope: CupScope) {
 
 function leagueTeamsFor(team: Team) {
   const sameLeague = TEAMS.filter((candidate) => candidate.city === team.city);
-  const pool =
-    sameLeague.length >= 3
-      ? sameLeague
-      : TEAMS.filter((candidate) => candidate.city.startsWith("Europa"));
-  return [team, ...pool.filter((candidate) => candidate.id !== team.id)].slice(
-    0,
-    8,
+  const regionalPool = TEAMS.filter((candidate) =>
+    team.city === "Brasileirão"
+      ? candidate.city === "Brasileirão"
+      : candidate.city.startsWith("Europa"),
+  );
+  const ordered = [team, ...sameLeague, ...regionalPool].filter(
+    (candidate, index, collection) =>
+      collection.findIndex((entry) => entry.id === candidate.id) === index,
+  );
+  return ordered.slice(0, 8);
+}
+
+function competitionPoolFor(
+  homeTeam: Team,
+  mode: CompetitionMode,
+  scope: CupScope,
+) {
+  if (mode === "friendly") return TEAMS;
+  if (mode === "league" || mode === "career") {
+    return leagueTeamsFor(homeTeam);
+  }
+  if (scope === "world") return TEAMS;
+  return TEAMS.filter((team) =>
+    homeTeam.city === "Brasileirão"
+      ? team.city === "Brasileirão"
+      : team.city.startsWith("Europa"),
   );
 }
 
@@ -4672,12 +4839,24 @@ function simulateLeagueRound(
   const others = next.filter(
     (row) => row.teamId !== homeId && row.teamId !== awayId,
   );
+  const simulatedGoals = (
+    team: Team | undefined,
+    rival: Team | undefined,
+    salt: number,
+  ) => {
+    if (!team || !rival) return 0;
+    const qualityEdge =
+      (lineupOverall(team) - lineupOverall(rival)) * 0.12;
+    const roll =
+      (seedFromName(`${team.id}-${rival.id}-${salt}`) % 1000) / 999;
+    return Math.round(clamp(0.35 + roll * 2.35 + qualityEdge, 0, 5));
+  };
   for (let index = 0; index + 1 < others.length; index += 2) {
     const first = TEAMS.find((team) => team.id === others[index].teamId);
     const second = TEAMS.find((team) => team.id === others[index + 1].teamId);
     const round = others[index].played + 1;
-    const firstGoals = ((first?.rating ?? 84) + round + index) % 3;
-    const secondGoals = ((second?.rating ?? 84) + round * 2 + index) % 3;
+    const firstGoals = simulatedGoals(first, second, round + index);
+    const secondGoals = simulatedGoals(second, first, round * 2 + index);
     next = applyFixture(
       next,
       others[index].teamId,
@@ -4777,6 +4956,9 @@ export default function FootballGame() {
   const [audioEnabled, setAudioEnabled] = useState(true);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [marketOpen, setMarketOpen] = useState(false);
+  const [teamPickerSide, setTeamPickerSide] = useState<Side | null>(null);
+  const [teamRegionFilter, setTeamRegionFilter] =
+    useState<TeamRegionFilter>("all");
   const [paused, setPaused] = useState(false);
   const [knob, setKnob] = useState({ x: 0, y: 0 });
   const [leagueRows, setLeagueRows] = useState<LeagueRow[]>(() =>
@@ -4832,6 +5014,43 @@ export default function FootballGame() {
     competitionMode === "career" && career.clubId === homeTeam.id
       ? career.squad
       : undefined;
+  const homeOverall = useMemo(
+    () => lineupOverall(homeTeam, homeFormation, activeCareerSquad),
+    [activeCareerSquad, homeFormation, homeTeam],
+  );
+  const awayOverall = useMemo(
+    () => lineupOverall(awayTeam, awayFormation),
+    [awayFormation, awayTeam],
+  );
+  const availableAwayTeams = useMemo(
+    () =>
+      competitionPoolFor(homeTeam, competitionMode, cupScope).filter(
+        (team) => team.id !== homeTeam.id,
+      ),
+    [competitionMode, cupScope, homeTeam],
+  );
+  const teamPickerOptions = useMemo(() => {
+    const source = teamPickerSide === "away" ? availableAwayTeams : TEAMS;
+    return source
+      .filter((team) => {
+        if (teamRegionFilter === "brazil") {
+          return team.city === "Brasileirão";
+        }
+        if (teamRegionFilter === "europe") {
+          return team.city.startsWith("Europa");
+        }
+        return true;
+      })
+      .sort((first, second) => {
+        const firstRegion = first.city === "Brasileirão" ? 0 : 1;
+        const secondRegion = second.city === "Brasileirão" ? 0 : 1;
+        return (
+          firstRegion - secondRegion ||
+          first.city.localeCompare(second.city, "pt-BR") ||
+          first.name.localeCompare(second.name, "pt-BR")
+        );
+      });
+  }, [availableAwayTeams, teamPickerSide, teamRegionFilter]);
   const featuredPlayer = useMemo(
     () =>
       [...rosterFor(homeTeam, activeCareerSquad)].sort(
@@ -5400,21 +5619,10 @@ export default function FootballGame() {
 
   const selectCompetition = (mode: CompetitionMode) => {
     setCompetitionMode(mode);
-    if (mode === "league" || mode === "career") {
-      const opponent = leagueTeamsFor(homeTeam).find(
+    if (mode !== "friendly") {
+      const opponent = competitionPoolFor(homeTeam, mode, cupScope).find(
         (team) => team.id !== homeTeam.id,
       );
-      const opponentIndex = TEAMS.findIndex((team) => team.id === opponent?.id);
-      if (opponentIndex >= 0) setAwayIndex(opponentIndex);
-    }
-    if (mode === "cup") {
-      const pool =
-        cupScope === "world"
-          ? TEAMS
-          : homeTeam.city === "Brasileirão"
-            ? TEAMS.filter((team) => team.city === "Brasileirão")
-            : TEAMS.filter((team) => team.city.startsWith("Europa"));
-      const opponent = pool.find((team) => team.id !== homeTeam.id);
       const opponentIndex = TEAMS.findIndex((team) => team.id === opponent?.id);
       if (opponentIndex >= 0) setAwayIndex(opponentIndex);
     }
@@ -5428,13 +5636,9 @@ export default function FootballGame() {
   const selectCupScope = (scope: CupScope) => {
     setCupScope(scope);
     resetCup();
-    const pool =
-      scope === "world"
-        ? TEAMS
-        : homeTeam.city === "Brasileirão"
-          ? TEAMS.filter((team) => team.city === "Brasileirão")
-          : TEAMS.filter((team) => team.city.startsWith("Europa"));
-    const opponent = pool.find((team) => team.id !== homeTeam.id);
+    const opponent = competitionPoolFor(homeTeam, "cup", scope).find(
+      (team) => team.id !== homeTeam.id,
+    );
     const opponentIndex = TEAMS.findIndex((team) => team.id === opponent?.id);
     if (opponentIndex >= 0) setAwayIndex(opponentIndex);
   };
@@ -5474,25 +5678,15 @@ export default function FootballGame() {
     }));
   };
 
-  const cycleHome = (direction: number) => {
-    let next = (homeIndex + direction + TEAMS.length) % TEAMS.length;
-    if (next === awayIndex)
-      next = (next + direction + TEAMS.length) % TEAMS.length;
+  const selectHomeTeam = (next: number) => {
+    if (!TEAMS[next] || next === homeIndex) return;
     const nextTeam = TEAMS[next];
     setHomeIndex(next);
     setLeagueRows(createLeagueRows(nextTeam));
     setCupRound(0);
     setCupEliminated(false);
     setCareer(createCareer(nextTeam));
-    if (competitionMode === "friendly") return;
-    const pool =
-      competitionMode === "league" || competitionMode === "career"
-        ? leagueTeamsFor(nextTeam)
-        : cupScope === "world"
-          ? TEAMS
-          : nextTeam.city === "Brasileirão"
-            ? TEAMS.filter((team) => team.city === "Brasileirão")
-            : TEAMS.filter((team) => team.city.startsWith("Europa"));
+    const pool = competitionPoolFor(nextTeam, competitionMode, cupScope);
     const currentOpponentIsValid = pool.some(
       (team) => team.id === awayTeam.id && team.id !== nextTeam.id,
     );
@@ -5502,28 +5696,37 @@ export default function FootballGame() {
     if (opponentIndex >= 0) setAwayIndex(opponentIndex);
   };
 
+  const cycleHome = (direction: number) => {
+    let next = (homeIndex + direction + TEAMS.length) % TEAMS.length;
+    if (next === awayIndex) {
+      next = (next + direction + TEAMS.length) % TEAMS.length;
+    }
+    selectHomeTeam(next);
+  };
+
+  const selectAwayTeam = (next: number) => {
+    const nextTeam = TEAMS[next];
+    if (
+      !nextTeam ||
+      nextTeam.id === homeTeam.id ||
+      !availableAwayTeams.some((team) => team.id === nextTeam.id)
+    ) {
+      return;
+    }
+    setAwayIndex(next);
+  };
+
   const cycleAway = (direction: number) => {
-    const pool =
-      competitionMode === "friendly"
-        ? TEAMS
-        : competitionMode === "league" || competitionMode === "career"
-          ? leagueTeamsFor(homeTeam)
-          : cupScope === "world"
-            ? TEAMS
-            : homeTeam.city === "Brasileirão"
-              ? TEAMS.filter((team) => team.city === "Brasileirão")
-              : TEAMS.filter((team) => team.city.startsWith("Europa"));
-    const available = pool.filter((team) => team.id !== homeTeam.id);
-    const currentPoolIndex = available.findIndex(
+    const currentPoolIndex = availableAwayTeams.findIndex(
       (team) => team.id === TEAMS[awayIndex].id,
     );
     const nextPoolIndex =
-      (Math.max(0, currentPoolIndex) + direction + available.length) %
-      available.length;
+      (Math.max(0, currentPoolIndex) + direction + availableAwayTeams.length) %
+      availableAwayTeams.length;
     const nextIndex = TEAMS.findIndex(
-      (team) => team.id === available[nextPoolIndex]?.id,
+      (team) => team.id === availableAwayTeams[nextPoolIndex]?.id,
     );
-    if (nextIndex >= 0) setAwayIndex(nextIndex);
+    if (nextIndex >= 0) selectAwayTeam(nextIndex);
   };
 
   const handleJoystick = (event: ReactPointerEvent<HTMLDivElement>) => {
@@ -5943,12 +6146,12 @@ export default function FootballGame() {
                 <span>60 FPS</span>
               </div>
               <h1>
-                FUTEBOL DE
-                <em>OUTRO NÍVEL.</em>
+                <em>STADLER</em>
+                FOOTBALL 3D
               </h1>
               <p>
-                Monte a estratégia, evolua o elenco e entre em campo. Futebol
-                8×8 leve, responsivo e pensado para rodar com FPS alto.
+                Escolha os clubes, compare o OVR dos titulares, defina a tática
+                e entre em campo no futebol 8×8.
               </p>
 
               <nav
@@ -6011,13 +6214,22 @@ export default function FootballGame() {
                     <ChevronLeft />
                   </button>
                   <TeamFlag team={homeTeam} />
-                  <div>
+                  <button
+                    type="button"
+                    className="team-choice__details"
+                    onClick={() => {
+                      setTeamRegionFilter("all");
+                      setTeamPickerSide("home");
+                    }}
+                    aria-label="Abrir seleção do seu time"
+                  >
                     <small>SEU TIME</small>
                     <strong>{homeTeam.name}</strong>
                     <span>
-                      {homeTeam.flag} {homeTeam.city} • OVR {homeTeam.rating}
+                      {homeTeam.flag} {homeTeam.city} • escolher clube
                     </span>
-                  </div>
+                    <b className="team-choice__overall">OVR {homeOverall}</b>
+                  </button>
                   <button
                     type="button"
                     onClick={() => cycleHome(1)}
@@ -6036,15 +6248,24 @@ export default function FootballGame() {
                     <ChevronLeft />
                   </button>
                   <TeamFlag team={awayTeam} />
-                  <div>
+                  <button
+                    type="button"
+                    className="team-choice__details"
+                    onClick={() => {
+                      setTeamRegionFilter("all");
+                      setTeamPickerSide("away");
+                    }}
+                    aria-label="Abrir seleção do adversário"
+                  >
                     <small>
                       {gameMode === "local2p" ? "JOGADOR 2" : "ADVERSÁRIO"}
                     </small>
                     <strong>{awayTeam.name}</strong>
                     <span>
-                      {awayTeam.flag} {awayTeam.city} • OVR {awayTeam.rating}
+                      {awayTeam.flag} {awayTeam.city} • escolher clube
                     </span>
-                  </div>
+                    <b className="team-choice__overall">OVR {awayOverall}</b>
+                  </button>
                   <button
                     type="button"
                     onClick={() => cycleAway(1)}
@@ -6063,30 +6284,60 @@ export default function FootballGame() {
                     </span>
                     <small>{standings[0]?.played ?? 0} rodada(s)</small>
                   </div>
-                  <div
-                    className="mini-table"
-                    role="table"
-                    aria-label="Classificação da liga"
+                  <Table
+                    className="league-table"
+                    aria-label="Classificação completa da liga"
                   >
-                    {standings.slice(0, 5).map((row, index) => {
-                      const team = TEAMS.find(
-                        (candidate) => candidate.id === row.teamId,
-                      );
-                      return (
-                        <div
-                          key={row.teamId}
-                          role="row"
-                          data-user={row.teamId === homeTeam.id}
-                        >
-                          <b>{index + 1}</b>
-                          <TeamBadge team={team ?? homeTeam} compact />
-                          <span>{team?.short ?? row.teamId}</span>
-                          <small>{row.played}J</small>
-                          <strong>{row.points} pts</strong>
-                        </div>
-                      );
-                    })}
-                  </div>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead aria-label="Posição">#</TableHead>
+                        <TableHead>Clube</TableHead>
+                        <TableHead>OVR</TableHead>
+                        <TableHead>J</TableHead>
+                        <TableHead>V</TableHead>
+                        <TableHead>E</TableHead>
+                        <TableHead>D</TableHead>
+                        <TableHead>SG</TableHead>
+                        <TableHead>PTS</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {standings.slice(0, 8).map((row, index) => {
+                        const team = TEAMS.find(
+                          (candidate) => candidate.id === row.teamId,
+                        );
+                        const goalDifference = row.goalsFor - row.goalsAgainst;
+                        return (
+                          <TableRow
+                            key={row.teamId}
+                            data-user={row.teamId === homeTeam.id}
+                          >
+                            <TableCell className="league-position">
+                              {index + 1}
+                            </TableCell>
+                            <TableCell className="league-club">
+                              <TeamBadge team={team ?? homeTeam} compact />
+                              <span>{team?.name ?? row.teamId}</span>
+                            </TableCell>
+                            <TableCell>
+                              {team ? lineupOverall(team) : "—"}
+                            </TableCell>
+                            <TableCell>{row.played}</TableCell>
+                            <TableCell>{row.wins}</TableCell>
+                            <TableCell>{row.draws}</TableCell>
+                            <TableCell>{row.losses}</TableCell>
+                            <TableCell>
+                              {goalDifference > 0 ? "+" : ""}
+                              {goalDifference}
+                            </TableCell>
+                            <TableCell className="league-points">
+                              {row.points}
+                            </TableCell>
+                          </TableRow>
+                        );
+                      })}
+                    </TableBody>
+                  </Table>
                 </section>
               )}
 
@@ -6322,10 +6573,10 @@ export default function FootballGame() {
 
               <div className="feature-strip">
                 <span>
-                  <Zap /> Física e OVR individual
+                  <Zap /> OVR comparado em cada duelo
                 </span>
                 <span>
-                  <Shield /> IA presa à formação
+                  <Shield /> Força pela média do elenco
                 </span>
                 <span>
                   <Gauge /> 2 tempos de 55 segundos
@@ -6440,6 +6691,101 @@ export default function FootballGame() {
           </div>
         )}
       </section>
+
+      <Dialog
+        open={teamPickerSide !== null}
+        onOpenChange={(open) => {
+          if (!open) setTeamPickerSide(null);
+        }}
+      >
+        <DialogContent className="game-dialog team-picker-dialog">
+          <DialogHeader>
+            <DialogTitle>
+              {teamPickerSide === "away"
+                ? "Escolher adversário"
+                : "Escolher seu clube"}
+            </DialogTitle>
+            <DialogDescription>
+              Compare a média dos oito titulares. Quanto maior o OVR, mais
+              forte o time será em campo.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="team-filter" aria-label="Filtrar clubes por região">
+            {[
+              ["all", "Todos"],
+              ["brazil", "Brasileirão"],
+              ["europe", "Europa"],
+            ].map(([value, label]) => (
+              <button
+                type="button"
+                key={value}
+                data-active={teamRegionFilter === value}
+                onClick={() => setTeamRegionFilter(value as TeamRegionFilter)}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          <div className="team-picker-summary">
+            <span>{teamPickerOptions.length} clubes disponíveis</span>
+            <small>OVR = média da escalação</small>
+          </div>
+          <div className="team-picker-grid">
+            {teamPickerOptions.length === 0 && (
+              <p className="team-picker-empty">
+                Nenhum clube desta região participa do torneio selecionado.
+              </p>
+            )}
+            {teamPickerOptions.map((team) => {
+              const index = TEAMS.findIndex(
+                (candidate) => candidate.id === team.id,
+              );
+              const selected =
+                teamPickerSide === "away"
+                  ? team.id === awayTeam.id
+                  : team.id === homeTeam.id;
+              const overall =
+                team.id === homeTeam.id && teamPickerSide !== "away"
+                  ? homeOverall
+                  : team.id === awayTeam.id && teamPickerSide === "away"
+                    ? awayOverall
+                    : lineupOverall(
+                        team,
+                        teamPickerSide === "away"
+                          ? awayFormation
+                          : homeFormation,
+                      );
+              return (
+                <button
+                  type="button"
+                  className="team-picker-card"
+                  data-selected={selected}
+                  key={team.id}
+                  onClick={() => {
+                    if (teamPickerSide === "away") selectAwayTeam(index);
+                    else selectHomeTeam(index);
+                    setTeamPickerSide(null);
+                  }}
+                  aria-label={`Selecionar ${team.name}, OVR ${overall}`}
+                >
+                  <TeamFlag team={team} />
+                  <span>
+                    <strong>{team.name}</strong>
+                    <small>
+                      {team.flag} {team.city}
+                    </small>
+                  </span>
+                  <b>{overall}</b>
+                </button>
+              );
+            })}
+          </div>
+          <p className="team-picker-hint">
+            Velocidade, passe, finalização, domínio, desarme e goleiro usam o
+            OVR de cada atleta e a força relativa do rival.
+          </p>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={settingsOpen} onOpenChange={toggleSettings}>
         <DialogContent className="game-dialog">
