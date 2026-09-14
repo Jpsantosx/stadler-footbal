@@ -44,3 +44,48 @@ test("offers an organized club picker and complete league table", () => {
   assert.match(source, /<TableHead>OVR<\/TableHead>/);
   assert.match(source, /<TableHead>PTS<\/TableHead>/);
 });
+
+test("keeps championship matchmaking inside the selected league", () => {
+  assert.match(source, /type LeagueId =/);
+  assert.equal(source.match(/leagueId: "[^"]+"/g)?.length, 24);
+  assert.match(
+    source,
+    /return TEAMS\.filter\(\(team\) => team\.leagueId === leagueId\)/,
+  );
+  assert.match(source, /selectedLeagueId/);
+  assert.match(source, /className="league-selector"/);
+  assert.doesNotMatch(source, /const regionalPool/);
+  assert.doesNotMatch(source, /\.slice\(0, 8\)\.map\(\(row/);
+});
+
+test("gives AI role discipline, tactical line movement and player identity", () => {
+  assert.match(source, /function roleProgressBounds/);
+  assert.match(source, /function pressingPlayer/);
+  assert.match(source, /wrongLinePenalty/);
+  assert.match(source, /baseProgress \+/);
+  assert.match(source, /tactic\.line/);
+  assert.match(source, /type PlayerArchetype =/);
+  assert.match(source, /function playerArchetypeFor/);
+  assert.match(source, /player\.archetype === "creator"/);
+  assert.match(source, /player\.archetype === "finisher"/);
+});
+
+test("applies career transfers atomically to budget and usable squad", () => {
+  assert.match(source, /function completePurchase/);
+  assert.match(source, /budget: current\.budget - price/);
+  assert.match(source, /squad: \[\.\.\.current\.squad, signedPlayer\]/);
+  assert.match(source, /function completeSale/);
+  assert.match(source, /budget: current\.budget \+ value/);
+  assert.match(source, /lineupFor\(career\.squad/);
+  assert.match(source, /A contratação já fica disponível na próxima partida/);
+});
+
+test("uses official crest fallbacks, team kits and unobtrusive local controls", () => {
+  assert.match(source, /function officialCrestUrl/);
+  assert.equal(source.match(/officialDomain: "[^"]+"/g)?.length, 24);
+  assert.match(source, /team\.kitPattern === "sash"/);
+  assert.match(source, /team\.kitPattern === "chest-band"/);
+  assert.match(source, /className="controls-corner-hint"/);
+  assert.match(source, /className="pause-controls"/);
+  assert.doesNotMatch(source, /className="keyboard-guide keyboard-guide--two"/);
+});

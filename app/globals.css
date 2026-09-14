@@ -362,8 +362,10 @@ button {
 }
 
 .team-badge {
+  position: relative;
   display: inline-grid;
   flex: 0 0 auto;
+  overflow: hidden;
   place-items: center;
   width: 58px;
   height: 66px;
@@ -374,6 +376,21 @@ button {
   font-weight: 950;
   font-style: italic;
   letter-spacing: -0.08em;
+}
+
+.team-badge img {
+  position: absolute;
+  z-index: 2;
+  inset: 10%;
+  width: 80%;
+  height: 80%;
+  object-fit: contain;
+  filter: drop-shadow(0 2px 2px rgba(0, 0, 0, 0.35));
+}
+
+.team-badge__fallback {
+  position: relative;
+  z-index: 1;
 }
 
 .team-badge--compact {
@@ -394,7 +411,9 @@ button {
 }
 
 .team-flag__cloth {
+  position: relative;
   display: grid;
+  overflow: hidden;
   width: 48px;
   height: 34px;
   place-items: center;
@@ -406,6 +425,21 @@ button {
   font-style: italic;
   letter-spacing: -0.04em;
   text-shadow: 0 1px 3px rgba(0, 0, 0, 0.38);
+}
+
+.team-flag__cloth img {
+  position: absolute;
+  z-index: 2;
+  inset: 8%;
+  width: 84%;
+  height: 84%;
+  object-fit: contain;
+  filter: drop-shadow(0 2px 3px rgba(0, 0, 0, 0.38));
+}
+
+.team-flag__cloth > span {
+  position: relative;
+  z-index: 1;
 }
 
 .team-flag__country {
@@ -663,6 +697,34 @@ kbd {
     sans-serif;
 }
 
+.controls-corner-hint {
+  position: absolute;
+  z-index: 22;
+  right: 18px;
+  bottom: 18px;
+  display: flex;
+  min-height: 30px;
+  align-items: center;
+  gap: 7px;
+  padding: 4px 9px 4px 5px;
+  border: 1px solid rgba(255, 255, 255, 0.13);
+  border-radius: 7px;
+  color: rgba(255, 255, 255, 0.54);
+  background: rgba(3, 9, 12, 0.6);
+  backdrop-filter: blur(8px);
+  font-size: 9px;
+  font-weight: 900;
+  cursor: pointer;
+  text-transform: uppercase;
+  transition: 140ms ease;
+}
+
+.controls-corner-hint:hover {
+  border-color: rgba(255, 214, 10, 0.48);
+  color: #fff;
+  background: rgba(3, 9, 12, 0.82);
+}
+
 .shot-meter {
   position: absolute;
   z-index: 24;
@@ -910,6 +972,132 @@ kbd {
   white-space: nowrap;
 }
 
+.league-selector {
+  width: min(750px, 64vw);
+  margin-bottom: 12px;
+  padding: 10px 12px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.11);
+  border-radius: 12px;
+  background: rgba(5, 13, 17, 0.78);
+  box-shadow: inset 0 1px rgba(255, 255, 255, 0.045);
+  backdrop-filter: blur(14px);
+}
+
+.league-selector__heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.league-selector__heading > span {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 950;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.league-selector__heading svg {
+  width: 15px;
+  color: #ffd60a;
+}
+
+.league-selector__heading small {
+  color: rgba(255, 255, 255, 0.42);
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.league-selector__grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.league-selector__grid button {
+  position: relative;
+  display: flex;
+  min-width: 0;
+  min-height: 48px;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 8px;
+  color: rgba(255, 255, 255, 0.62);
+  background: rgba(255, 255, 255, 0.035);
+  cursor: pointer;
+  text-align: left;
+}
+
+.league-selector__grid button::after {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: 2px;
+  content: "";
+  background: var(--league-accent, #ffd60a);
+  opacity: 0.38;
+}
+
+.league-selector__grid button:hover,
+.league-selector__grid button[data-active="true"] {
+  border-color: var(--league-accent, #ffd60a);
+  color: #fff;
+  background: color-mix(in srgb, var(--league-accent, #ffd60a) 13%, transparent);
+}
+
+.league-selector__grid button[data-active="true"]::after {
+  height: 3px;
+  opacity: 1;
+}
+
+.league-selector__grid button:disabled {
+  cursor: not-allowed;
+  opacity: 0.38;
+  filter: grayscale(0.65);
+}
+
+.league-selector__grid button:disabled:hover {
+  border-color: rgba(255, 255, 255, 0.09);
+  color: rgba(255, 255, 255, 0.62);
+  background: rgba(255, 255, 255, 0.035);
+}
+
+.league-selector__grid button > b {
+  font-size: 20px;
+}
+
+.league-selector__grid button > span {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+}
+
+.league-selector__grid strong,
+.league-selector__grid small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.league-selector__grid strong {
+  font-size: 11px;
+  font-weight: 950;
+}
+
+.league-selector__grid small {
+  margin-top: 2px;
+  font-size: 10px;
+  opacity: 0.54;
+}
+
 .matchup-selector {
   display: grid;
   grid-template-columns: 1fr 34px 1fr;
@@ -1113,7 +1301,7 @@ kbd {
 }
 
 .league-dashboard [data-slot="table-container"] {
-  max-height: 272px;
+  max-height: 306px;
   overflow: auto;
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 9px;
@@ -1123,11 +1311,12 @@ kbd {
 
 .league-table {
   width: 100%;
-  min-width: 650px;
+  min-width: 760px;
   border-collapse: separate;
   border-spacing: 0;
   color: rgba(255, 255, 255, 0.72);
   font-size: 12px;
+  font-variant-numeric: tabular-nums;
 }
 
 .league-table [data-slot="table-head"] {
@@ -1163,7 +1352,7 @@ kbd {
 }
 
 .league-table [data-slot="table-cell"] {
-  height: 30px;
+  height: 32px;
   padding: 3px 8px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.045);
   text-align: center;
@@ -1187,6 +1376,12 @@ kbd {
   gap: 8px;
   text-align: left !important;
   font-weight: 900;
+}
+
+.league-club span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .league-club .team-badge {
@@ -1295,7 +1490,7 @@ kbd {
 
 .career-dashboard {
   display: grid;
-  grid-template-columns: repeat(3, 1fr) auto;
+  grid-template-columns: repeat(4, 1fr) auto;
   align-items: center;
   gap: 8px;
 }
@@ -2117,6 +2312,37 @@ kbd {
   overflow-y: auto;
 }
 
+.market-summary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 7px;
+}
+
+.market-summary > span {
+  display: flex;
+  min-height: 48px;
+  flex-direction: column;
+  justify-content: center;
+  padding: 8px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.035);
+}
+
+.market-summary small {
+  color: rgba(255, 255, 255, 0.4);
+  font-size: 9px;
+  font-weight: 850;
+  text-transform: uppercase;
+}
+
+.market-summary b {
+  margin-top: 3px;
+  color: #ffd60a;
+  font-size: 13px;
+  font-weight: 950;
+}
+
 .market-columns {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -2233,8 +2459,78 @@ kbd {
   font-size: 8px;
 }
 
+.transfer-history {
+  display: grid;
+  gap: 6px;
+  padding: 9px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.transfer-history > strong {
+  color: #fff;
+  font-size: 9px;
+  font-weight: 950;
+  text-transform: uppercase;
+}
+
+.transfer-history > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.transfer-history span {
+  padding: 4px 6px;
+  border-radius: 5px;
+  color: rgba(255, 255, 255, 0.5);
+  background: rgba(255, 255, 255, 0.045);
+  font-size: 8px;
+}
+
 .pause-dialog {
   text-align: center;
+}
+
+.pause-controls {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  text-align: left;
+}
+
+.pause-controls > section {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 5px;
+  padding: 9px;
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.035);
+}
+
+.pause-controls > section:only-child {
+  grid-column: 1 / -1;
+}
+
+.pause-controls strong {
+  grid-column: 1 / -1;
+  margin-bottom: 2px;
+  color: #ffd60a;
+  font-size: 10px;
+  font-weight: 950;
+  text-transform: uppercase;
+}
+
+.pause-controls span {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: rgba(255, 255, 255, 0.62);
+  font-size: 8px;
+  font-weight: 800;
+  text-transform: uppercase;
 }
 
 .pause-dialog .play-button,
@@ -2264,6 +2560,7 @@ kbd {
 
   .matchup-selector,
   .competition-tabs,
+  .league-selector,
   .mode-dashboard,
   .tactics-config,
   .difficulty-row,
@@ -2609,12 +2906,17 @@ kbd {
   }
 
   .competition-tabs,
+  .league-selector,
   .mode-dashboard,
   .tactics-config {
     width: 100%;
   }
 
   .competition-tabs {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .league-selector__grid {
     grid-template-columns: 1fr 1fr;
   }
 
@@ -2831,7 +3133,26 @@ kbd {
   }
 
   .league-table {
-    min-width: 610px;
+    min-width: 720px;
+  }
+
+  .league-selector__heading {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 3px;
+  }
+
+  .market-summary {
+    grid-template-columns: 1fr;
+  }
+
+  .pause-controls {
+    grid-template-columns: 1fr;
+  }
+
+  .pause-controls > section,
+  .pause-controls > section:only-child {
+    grid-column: auto;
   }
 
   .team-picker-dialog {

@@ -1,8 +1,12 @@
 # Publicação do Stadler Football 3D
 
-## Opção mais simples: versão já publicada
+## Versão principal já publicada
 
 Compartilhe este endereço:
+
+<https://stadler-footbal.vercel.app>
+
+Espelho alternativo:
 
 <https://stadler-football-3d.joaopedrostadl554190.chatgpt.site>
 
@@ -41,9 +45,28 @@ PORT=3000 npm run start
 
 Coloque Nginx, Caddy ou o proxy HTTPS do provedor na frente da porta 3000.
 
-## Vercel, Netlify e GitHub Pages
+## Vercel
 
-Este projeto usa Vinext/Cloudflare Worker e possui execução de servidor. Por isso, GitHub Pages não é um destino direto e Vercel/Netlify exigiriam uma adaptação do runtime. Para publicar o código atual sem reescrever o motor, prefira a URL já ativa ou um dos provedores de contêiner descritos acima.
+O projeto possui uma configuração própria em `vercel.json`. Ela mantém o build
+Vinext usado pelo ChatGPT Sites e executa o aplicativo como Next.js nativo na
+Vercel.
+
+Pelo painel, importe o repositório `Jpsantosx/stadler-footbal` e mantenha as
+configurações detectadas. Pela linha de comando:
+
+```bash
+vercel link
+vercel
+vercel --prod
+```
+
+O comando de produção usado pela Vercel é `npm run build:vercel`.
+
+## Netlify e GitHub Pages
+
+O runtime principal usa renderização de servidor. Por isso, GitHub Pages não é
+um destino direto e Netlify requer uma adaptação específica. Para esses casos,
+prefira a publicação ativa ou um provedor de contêiner descrito acima.
 
 ## Atualizações
 
