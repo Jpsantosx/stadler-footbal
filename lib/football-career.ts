@@ -17,7 +17,7 @@ import {
 export const playerKey = (seed: SquadSeed) =>
   seed[7] ?? `${seed[0]}-${seed[1]}`;
 export const weeklyWage = (overall: number) =>
-  Math.round(Math.max(3, (overall - 48) ** 2 / 12)); // € thousands / week
+  Math.round(Math.max(3, 6 * Math.exp((overall - 68) * 0.14))); // € thousands / week
 export const transferValue = (seed: SquadSeed, week = 0) => {
   const age = seed[4] ?? 25;
   const ageFactor =
@@ -29,7 +29,11 @@ export const transferValue = (seed: SquadSeed, week = 0) => {
   return Math.max(
     1,
     Math.round(
-      ((seed[2] - 50) ** 2 / 23) * ageFactor * potentialFactor * marketCycle,
+      2.2 *
+        Math.exp((seed[2] - 70) * 0.19) *
+        ageFactor *
+        potentialFactor *
+        marketCycle,
     ),
   );
 };

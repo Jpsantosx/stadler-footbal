@@ -90,6 +90,30 @@ test("8-a-side formations preserve natural roles when the squad has coverage", (
   }
 });
 
+test("reviewed leaders remain ahead of reserves in the starting ratings", () => {
+  const madrid = ROSTERS["real-madrid"];
+  const rating = (squad, name) => squad.find((p) => p[0].includes(name))[2];
+  assert.ok(rating(madrid, "Courtois") >= rating(madrid, "Lunin") + 7);
+  assert.ok(rating(madrid, "Mbappé") > rating(madrid, "Brahim"));
+  assert.ok(
+    rating(ROSTERS.flamengo, "Arrascaeta") > rating(ROSTERS.flamengo, "Saúl"),
+  );
+  assert.ok(
+    Object.values(ROSTERS)
+      .flat()
+      .every((p) => p[5] >= p[2]),
+  );
+});
+
+test("elite market values and wages are distinct from ordinary squad players", () => {
+  const ordinary = ["Example", 7, 70, "FW", 26, 70, 75, "test"];
+  const elite = [...ordinary];
+  elite[2] = elite[5] = 90;
+  assert.ok(transferValue(elite) > transferValue(ordinary) * 10);
+  assert.ok(weeklyWage(90) > weeklyWage(70) * 8);
+  assert.ok(transferValue(ordinary) <= 5);
+});
+
 test("full match ends after two 55-second halves plus stoppages without invalid state", () => {
   const s = match();
   s.frozen = 0;

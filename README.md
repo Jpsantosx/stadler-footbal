@@ -72,3 +72,7 @@ O renderizador apenas lê o estado da partida. Transferências produzem uma nova
 O catálogo contém 3.757 atletas reais obtidos em um recorte dos dados públicos da ESPN em setembro de 2026; até 28 por clube formam o plantel profissional utilizável, selecionado por posição. O catálogo não acompanha transferências automaticamente. OVR, potencial, valores, salários e contratos são estimativas próprias, não avaliações oficiais da EA ou informações financeiras reais.
 
 Os uniformes usam cores e padrões característicos com texturas procedurais; não são digitalizações licenciadas das camisas atuais. As animações são procedurais, sem captura de movimento. Este é um projeto de navegador em evolução, com futebol adaptado a 8×8, e não uma reprodução da complexidade ou fidelidade de EA FC. Fontes e créditos em [CREDITS.md](./CREDITS.md).
+
+### Recalibrar o OVR
+
+As 172 avaliações individuais revisadas ficam em `data/player-ratings.json`. Os demais atletas usam faixas conservadoras por clube e idade; reservas e jovens não recebem automaticamente notas de estrela. Depois de editar as avaliações, execute `node scripts/rebalance-ratings.mjs` e `npm run test:game`. Valores de mercado e salários usam curvas próprias que distinguem jogadores comuns de atletas de elite. Essas estimativas não são avaliações oficiais nem valores financeiros reais.

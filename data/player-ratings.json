@@ -1,0 +1,693 @@
+{
+  "model": "Avaliações autorais de jogo; não são notas oficiais da EA. Os destaques têm revisão individual, os demais usam faixas conservadoras por clube e idade.",
+  "overrides": {
+    "215388": {
+      "name": "Agustín Rossi",
+      "overall": 84
+    },
+    "252316": {
+      "name": "Léo Ortiz",
+      "overall": 84
+    },
+    "125514": {
+      "name": "Alex Sandro",
+      "overall": 82
+    },
+    "165778": {
+      "name": "Jorginho",
+      "overall": 84
+    },
+    "179767": {
+      "name": "Giorgian de Arrascaeta",
+      "overall": 86
+    },
+    "235017": {
+      "name": "Pedro",
+      "overall": 84
+    },
+    "201683": {
+      "name": "Bruno Henrique",
+      "overall": 81
+    },
+    "134283": {
+      "name": "Thibaut Courtois",
+      "overall": 90
+    },
+    "228402": {
+      "name": "Éder Militão",
+      "overall": 84
+    },
+    "169438": {
+      "name": "Antonio Rüdiger",
+      "overall": 86
+    },
+    "235818": {
+      "name": "Federico Valverde",
+      "overall": 89
+    },
+    "291281": {
+      "name": "Jude Bellingham",
+      "overall": 90
+    },
+    "310452": {
+      "name": "Arda Güler",
+      "overall": 84
+    },
+    "231388": {
+      "name": "Kylian Mbappé",
+      "overall": 91
+    },
+    "118395": {
+      "name": "Gustavo Gómez",
+      "overall": 83
+    },
+    "254007": {
+      "name": "Joaquín Piquerez",
+      "overall": 80
+    },
+    "210143": {
+      "name": "Andreas Pereira",
+      "overall": 82
+    },
+    "152812": {
+      "name": "Felipe Anderson",
+      "overall": 80
+    },
+    "329383": {
+      "name": "Vitor Roque",
+      "overall": 82
+    },
+    "297362": {
+      "name": "Joan García",
+      "overall": 86
+    },
+    "368992": {
+      "name": "Pau Cubarsí",
+      "overall": 86
+    },
+    "231692": {
+      "name": "Jules Koundé",
+      "overall": 85
+    },
+    "219022": {
+      "name": "Frenkie de Jong",
+      "overall": 86
+    },
+    "250465": {
+      "name": "Pedri",
+      "overall": 90
+    },
+    "227765": {
+      "name": "Dani Olmo",
+      "overall": 84
+    },
+    "231050": {
+      "name": "Raphinha",
+      "overall": 89
+    },
+    "362150": {
+      "name": "Lamine Yamal",
+      "overall": 90
+    },
+    "257051": {
+      "name": "Hugo Souza",
+      "overall": 79
+    },
+    "194090": {
+      "name": "André Ramalho",
+      "overall": 78
+    },
+    "236099": {
+      "name": "Raniele",
+      "overall": 77
+    },
+    "338898": {
+      "name": "Breno Bidon",
+      "overall": 78
+    },
+    "270562": {
+      "name": "Rodrigo Garro",
+      "overall": 81
+    },
+    "159255": {
+      "name": "Memphis Depay",
+      "overall": 82
+    },
+    "266666": {
+      "name": "Yuri Alberto",
+      "overall": 80
+    },
+    "217092": {
+      "name": "Gianluigi Donnarumma",
+      "overall": 89
+    },
+    "234878": {
+      "name": "Rúben Dias",
+      "overall": 88
+    },
+    "299910": {
+      "name": "Josko Gvardiol",
+      "overall": 86
+    },
+    "283672": {
+      "name": "Jérémy Doku",
+      "overall": 84
+    },
+    "253989": {
+      "name": "Erling Haaland",
+      "overall": 91
+    },
+    "199013": {
+      "name": "Rafael",
+      "overall": 79
+    },
+    "196855": {
+      "name": "Rafael Tolói",
+      "overall": 79
+    },
+    "201531": {
+      "name": "Robert Arboleda",
+      "overall": 78
+    },
+    "266282": {
+      "name": "Marcos Antonio",
+      "overall": 79
+    },
+    "130711": {
+      "name": "Lucas Moura",
+      "overall": 81
+    },
+    "190483": {
+      "name": "Luciano",
+      "overall": 79
+    },
+    "162558": {
+      "name": "Jonathan Calleri",
+      "overall": 79
+    },
+    "196876": {
+      "name": "Alisson Becker",
+      "overall": 89
+    },
+    "157892": {
+      "name": "Virgil van Dijk",
+      "overall": 89
+    },
+    "249299": {
+      "name": "Alexis Mac Allister",
+      "overall": 86
+    },
+    "257206": {
+      "name": "Dominik Szoboszlai",
+      "overall": 85
+    },
+    "303748": {
+      "name": "Florian Wirtz",
+      "overall": 89
+    },
+    "235662": {
+      "name": "Alexander Isak",
+      "overall": 88
+    },
+    "266665": {
+      "name": "Gabriel Brazão",
+      "overall": 77
+    },
+    "196856": {
+      "name": "João Schmidt",
+      "overall": 76
+    },
+    "269813": {
+      "name": "Benjamín Rollheiser",
+      "overall": 77
+    },
+    "132948": {
+      "name": "Neymar",
+      "overall": 85
+    },
+    "196176": {
+      "name": "David Raya",
+      "overall": 88
+    },
+    "236322": {
+      "name": "Gabriel Magalhães",
+      "overall": 89
+    },
+    "277385": {
+      "name": "William Saliba",
+      "overall": 88
+    },
+    "238262": {
+      "name": "Declan Rice",
+      "overall": 88
+    },
+    "203669": {
+      "name": "Martin Ødegaard",
+      "overall": 88
+    },
+    "251400": {
+      "name": "Eberechi Eze",
+      "overall": 84
+    },
+    "280555": {
+      "name": "Bukayo Saka",
+      "overall": 89
+    },
+    "258906": {
+      "name": "Viktor Gyökeres",
+      "overall": 86
+    },
+    "199734": {
+      "name": "Alex Telles",
+      "overall": 79
+    },
+    "306764": {
+      "name": "Danilo Santos",
+      "overall": 82
+    },
+    "272224": {
+      "name": "Danilo",
+      "overall": 82
+    },
+    "379785": {
+      "name": "Álvaro Montoro",
+      "overall": 78
+    },
+    "224103": {
+      "name": "Arthur Cabral",
+      "overall": 79
+    },
+    "84774": {
+      "name": "Manuel Neuer",
+      "overall": 84
+    },
+    "222793": {
+      "name": "Dayot Upamecano",
+      "overall": 84
+    },
+    "188052": {
+      "name": "Jonathan Tah",
+      "overall": 86
+    },
+    "190161": {
+      "name": "Joshua Kimmich",
+      "overall": 88
+    },
+    "303821": {
+      "name": "Jamal Musiala",
+      "overall": 89
+    },
+    "286831": {
+      "name": "Michael Olise",
+      "overall": 87
+    },
+    "257390": {
+      "name": "Luis Díaz",
+      "overall": 86
+    },
+    "142200": {
+      "name": "Harry Kane",
+      "overall": 90
+    },
+    "158382": {
+      "name": "Fábio",
+      "overall": 78
+    },
+    "96254": {
+      "name": "Thiago Silva",
+      "overall": 83
+    },
+    "173588": {
+      "name": "René",
+      "overall": 76
+    },
+    "307946": {
+      "name": "Martinelli",
+      "overall": 78
+    },
+    "336622": {
+      "name": "Hércules",
+      "overall": 78
+    },
+    "175902": {
+      "name": "Ganso",
+      "overall": 80
+    },
+    "241466": {
+      "name": "Agustín Canobbio",
+      "overall": 78
+    },
+    "165749": {
+      "name": "Germán Cano",
+      "overall": 80
+    },
+    "248699": {
+      "name": "Matvei Safonov",
+      "overall": 83
+    },
+    "287005": {
+      "name": "Willian Pacho",
+      "overall": 87
+    },
+    "159047": {
+      "name": "Marquinhos",
+      "overall": 87
+    },
+    "355061": {
+      "name": "João Neves",
+      "overall": 88
+    },
+    "288897": {
+      "name": "Vitinha",
+      "overall": 90
+    },
+    "274745": {
+      "name": "Khvicha Kvaratskhelia",
+      "overall": 88
+    },
+    "229744": {
+      "name": "Ousmane Dembélé",
+      "overall": 90
+    },
+    "205464": {
+      "name": "Léo Jardim",
+      "overall": 79
+    },
+    "235940": {
+      "name": "Carlos Cuesta",
+      "overall": 79
+    },
+    "287862": {
+      "name": "Lucas Piton",
+      "overall": 78
+    },
+    "323815": {
+      "name": "Nuno Moreira",
+      "overall": 77
+    },
+    "249280": {
+      "name": "Alessandro Bastoni",
+      "overall": 88
+    },
+    "214562": {
+      "name": "Manuel Akanji",
+      "overall": 86
+    },
+    "204441": {
+      "name": "Nicolò Barella",
+      "overall": 88
+    },
+    "170785": {
+      "name": "Hakan Çalhanoglu",
+      "overall": 86
+    },
+    "147625": {
+      "name": "Henrikh Mkhitaryan",
+      "overall": 82
+    },
+    "219713": {
+      "name": "Lautaro Martínez",
+      "overall": 89
+    },
+    "217331": {
+      "name": "Marcus Thuram",
+      "overall": 86
+    },
+    "146109": {
+      "name": "Wálter Kannemann",
+      "overall": 77
+    },
+    "229121": {
+      "name": "Marlon",
+      "overall": 77
+    },
+    "213879": {
+      "name": "Dodi",
+      "overall": 75
+    },
+    "187100": {
+      "name": "Martin Braithwaite",
+      "overall": 79
+    },
+    "189026": {
+      "name": "Mike Maignan",
+      "overall": 87
+    },
+    "236210": {
+      "name": "Fikayo Tomori",
+      "overall": 82
+    },
+    "290375": {
+      "name": "Strahinja Pavlovic",
+      "overall": 80
+    },
+    "76762": {
+      "name": "Luka Modric",
+      "overall": 86
+    },
+    "225607": {
+      "name": "Christian Pulisic",
+      "overall": 85
+    },
+    "184206": {
+      "name": "Sergio Rochet",
+      "overall": 78
+    },
+    "285029": {
+      "name": "Alexander Bernabei",
+      "overall": 78
+    },
+    "213239": {
+      "name": "Thiago Maia",
+      "overall": 77
+    },
+    "188485": {
+      "name": "Bruno Henrique",
+      "overall": 76
+    },
+    "165232": {
+      "name": "Alan Patrick",
+      "overall": 81
+    },
+    "270246": {
+      "name": "Johan Carbonero",
+      "overall": 78
+    },
+    "258307": {
+      "name": "Bremer",
+      "overall": 86
+    },
+    "323147": {
+      "name": "Federico Gatti",
+      "overall": 80
+    },
+    "217538": {
+      "name": "Manuel Locatelli",
+      "overall": 83
+    },
+    "283139": {
+      "name": "Khéphren Thuram",
+      "overall": 82
+    },
+    "258968": {
+      "name": "Teun Koopmeiners",
+      "overall": 83
+    },
+    "223953": {
+      "name": "Éverson",
+      "overall": 80
+    },
+    "220747": {
+      "name": "Lyanco",
+      "overall": 79
+    },
+    "262111": {
+      "name": "Alan Franco",
+      "overall": 77
+    },
+    "205074": {
+      "name": "Gustavo Scarpa",
+      "overall": 80
+    },
+    "158272": {
+      "name": "Bernard",
+      "overall": 77
+    },
+    "189007": {
+      "name": "Reece James",
+      "overall": 84
+    },
+    "296410": {
+      "name": "Levi Colwill",
+      "overall": 82
+    },
+    "289877": {
+      "name": "Moisés Caicedo",
+      "overall": 87
+    },
+    "296395": {
+      "name": "Cole Palmer",
+      "overall": 88
+    },
+    "256115": {
+      "name": "Pedro Neto",
+      "overall": 84
+    },
+    "284960": {
+      "name": "João Pedro",
+      "overall": 84
+    },
+    "108347": {
+      "name": "Cássio",
+      "overall": 79
+    },
+    "236111": {
+      "name": "Fabrício Bruno",
+      "overall": 80
+    },
+    "77577": {
+      "name": "Lucas Romero",
+      "overall": 78
+    },
+    "108103": {
+      "name": "Lucas Silva",
+      "overall": 77
+    },
+    "280978": {
+      "name": "Kaio Jorge",
+      "overall": 82
+    },
+    "149622": {
+      "name": "Jan Oblak",
+      "overall": 89
+    },
+    "257786": {
+      "name": "Dávid Hancko",
+      "overall": 84
+    },
+    "206474": {
+      "name": "Marcos Llorente",
+      "overall": 84
+    },
+    "336634": {
+      "name": "Pablo Barrios",
+      "overall": 83
+    },
+    "277206": {
+      "name": "Julián Álvarez",
+      "overall": 89
+    },
+    "188230": {
+      "name": "Alexander Sørloth",
+      "overall": 84
+    },
+    "172269": {
+      "name": "Saúl Ñíguez",
+      "overall": 82
+    },
+    "328497": {
+      "name": "Cristhian Mosquera",
+      "overall": 80
+    },
+    "231182": {
+      "name": "Kai Havertz",
+      "overall": 83
+    },
+    "194121": {
+      "name": "Freddie Woodman",
+      "overall": 72
+    },
+    "274742": {
+      "name": "Giorgi Mamardashvili",
+      "overall": 83
+    },
+    "102053": {
+      "name": "Joe Gomez",
+      "overall": 80
+    },
+    "250183": {
+      "name": "Conor Bradley",
+      "overall": 80
+    },
+    "154595": {
+      "name": "Mateo Kovacic",
+      "overall": 83
+    },
+    "250787": {
+      "name": "Phil Foden",
+      "overall": 87
+    },
+    "312015": {
+      "name": "Gerard Martín",
+      "overall": 78
+    },
+    "231828": {
+      "name": "Rodri",
+      "overall": 90
+    },
+    "257237": {
+      "name": "Andriy Lunin",
+      "overall": 81
+    },
+    "223532": {
+      "name": "Trent Alexander-Arnold",
+      "overall": 87
+    },
+    "217475": {
+      "name": "Ferland Mendy",
+      "overall": 82
+    },
+    "246532": {
+      "name": "Brahim Díaz",
+      "overall": 83
+    },
+    "285150": {
+      "name": "Eduardo Camavinga",
+      "overall": 85
+    },
+    "265919": {
+      "name": "Aurélien Tchouaméni",
+      "overall": 85
+    },
+    "199833": {
+      "name": "Bernardo Silva",
+      "overall": 86
+    },
+    "252107": {
+      "name": "Vinícius Júnior",
+      "overall": 90
+    },
+    "346612": {
+      "name": "Endrick",
+      "overall": 79
+    },
+    "267804": {
+      "name": "Rodrygo",
+      "overall": 86
+    },
+    "403234": {
+      "name": "Vitinha",
+      "overall": 90
+    },
+    "97111": {
+      "name": "Hiroki Ito",
+      "overall": 80
+    },
+    "169189": {
+      "name": "Konrad Laimer",
+      "overall": 82
+    },
+    "290591": {
+      "name": "Nuno Mendes",
+      "overall": 89
+    },
+    "304503": {
+      "name": "Illia Zabarnyi",
+      "overall": 81
+    },
+    "265869": {
+      "name": "Ferran Torres",
+      "overall": 83
+    }
+  }
+}
