@@ -1,30 +1,23 @@
-# Créditos visuais e marcas
+# Fontes e créditos
 
-Stadler Football 3D é um projeto independente e não possui afiliação,
-patrocínio ou endosso dos clubes representados.
+Stadler Football é independente, sem afiliação ou endosso de clubes, ligas, ESPN ou Electronic Arts.
 
-## Escudos
+## Clubes, atletas e escudos
 
-Os menus carregam, em tempo de execução, o favicon publicado pelo domínio
-oficial de cada clube. A lista de domínios está declarada junto aos dados dos
-times em `app/football-game.tsx`. Caso a imagem externa não esteja disponível,
-o jogo volta automaticamente ao emblema tipográfico interno.
+O catálogo foi obtido dos feeds públicos de futebol da ESPN em setembro de 2026. Cada clube registra seus identificadores e a origem dos dados em `data/football-catalog.json`.
 
-Os nomes, escudos e demais marcas pertencem aos seus respectivos titulares.
-A coleção Football Logos foi usada apenas como índice visual e referência de
-cores. A própria fonte limita os arquivos a usos informativos, editoriais e de
-fãs e proíbe sugerir afiliação ou endosso:
+- [ESPN Futebol](https://www.espn.com/soccer/)
+- Catálogo: `https://site.api.espn.com/apis/site/v2/sports/soccer/eng.1/teams?limit=100`
+- Elenco: `https://site.api.espn.com/apis/site/v2/sports/soccer/eng.1/teams/359/roster`
+- Imagens: `https://a.espncdn.com/i/teamlogos/soccer/500/{id}.png`
 
-- https://football-logos.cc/license/
-- https://football-logos.cc/
+O build baixa e verifica os 116 escudos em `public/crests/`, preservando suas proporções e transparência. Não são favicons. Nomes, escudos e marcas pertencem aos respectivos titulares; a disponibilidade pública não representa uma licença comercial concedida ao projeto.
 
-## Uniformes
+Identificação, nome, função, idade e medidas corporais vêm do recorte. OVR, potencial, valores de transferência, salários, contratos, personalidade, moral e finanças são parâmetros próprios da simulação. Talentos das categorias de base são fictícios e identificados como tal na interface.
 
-Os uniformes são desenhados pelo motor do jogo. Eles reproduzem cores e
-padrões esportivos reconhecíveis (listras, faixa diagonal, faixa central e
-mangas contrastantes), sem copiar patrocinadores, selos comerciais ou arquivos
-de camisas licenciadas.
+## Renderização
 
-Se este projeto passar a ter finalidade comercial, obtenha antes as licenças
-necessárias dos titulares das marcas e substitua qualquer asset cuja licença
-não cubra essa finalidade.
+- [Three.js](https://threejs.org/): renderização 3D, licença MIT.
+- Estádio, gramado, desgaste, texturas de uniformes, bola e animações articulares são gerados pelo código.
+- As camisas representam cores e padrões característicos; não incluem reproduções completas de patrocinadores nem garantem fidelidade ao uniforme oficial de uma temporada específica.
+- React, Next.js, Lucide e demais dependências mantêm suas licenças próprias, disponíveis nos respectivos pacotes.

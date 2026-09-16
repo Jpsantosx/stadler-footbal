@@ -1,105 +1,74 @@
-# Stadler Football 3D
+# Stadler Football — Matchday
 
-Jogo de futebol 8×8 para navegador, construído com React, TypeScript e Canvas 2D. O motor prioriza realismo tático, individualidade por atributos e uma apresentação imersiva.
+Simulador independente de futebol 8×8 para navegador, em React, TypeScript e Three.js. A atualização Matchday substitui a apresentação principal em Canvas 2D por um estádio 3D e separa o motor da interface e da gestão.
 
-## Jogar e ver o código
+- [Jogar na Vercel](https://stadler-footbal.vercel.app)
+- [Código no GitHub](https://github.com/Jpsantosx/stadler-footbal)
 
-- Jogo público na Vercel: [stadler-footbal.vercel.app](https://stadler-footbal.vercel.app)
-- Espelho no ChatGPT Sites: [stadler-football-3d.joaopedrostadl554190.chatgpt.site](https://stadler-football-3d.joaopedrostadl554190.chatgpt.site)
-- Código-fonte: [github.com/Jpsantosx/stadler-footbal](https://github.com/Jpsantosx/stadler-footbal)
+## A atualização
 
-## O que foi implementado
+- **Estádio 3D:** gramado procedural de 2048×2048, faixas de corte, desgaste, sombras, iluminação dinâmica, arquibancadas, torcida, traves e redes. Jogadores articulados com ciclos contínuos de corrida, chute, domínio, carrinho e mergulho. Canvas 2D permanece como alternativa se WebGL não estiver disponível.
+- **Física:** integração fixa em 120 passos por segundo, aceleração e desaceleração, colisões ponderadas pela massa, efeito da bola, quique, atrito e domínio com possibilidade de toque pesado. Não há atração magnética da bola.
+- **IA:** cobertura por zona, marcação distribuída, leitura de linhas de passe, interceptação antecipada, apoios, ultrapassagens e condução em direção ao gol. Os atacantes preservam sua faixa de atuação; a postura muda a altura e a largura das linhas.
+- **Atributos:** OVR, função e perfil individual afetam velocidade, aceleração, precisão, domínio, desarme, resistência, força e tempo de decisão. Fadiga e moral da carreira alteram o rendimento.
+- **Competições:** 116 clubes em seis ligas completas, calendário de ida e volta e adversários restritos à liga selecionada. Brasileirão, Premier League, LaLiga e Serie A têm 20 clubes; Bundesliga e Ligue 1 têm 18. Copas continentais e mundial usam um formato simplificado.
+- **Carreira:** proposta de passe, salário semanal, duração de contrato, contraproposta, renovação, compra, venda e escalação. Clubes da IA negociam entre si e usam seus elencos atualizados. Fadiga, moral por participação, treinamento, evolução, envelhecimento e expiração de contratos são processados por rodada ou temporada.
+- **Base e diretoria:** talentos fictícios podem ser promovidos. Metas de pontos, folha salarial e promoção de jovens influenciam a confiança da diretoria; resultados ruins podem causar demissão.
+- **Interface:** menu Matchday, escudos PNG locais sem recortes decorativos, tabela com cabeçalho fixo, central de gestão e HUD discreto. Os atalhos de teclado ficam no menu de pausa.
 
-### Partida, regras e tática
+## Partida e controles
 
-- 8 jogadores por time, com formações `2-3-2`, `3-2-2` e `2-2-3` adaptadas ao campo reduzido
-- posturas Equilibrada, Ofensiva, Defensiva e Contra-ataque
-- IA com zonas rígidas por função: atacantes não perseguem a bola até a própria zaga, zagueiros protegem sua linha e meio-campistas conectam os setores
-- linha, largura, pressão, compactação, apoio e corridas mudam dinamicamente com a formação, a posse e a postura escolhida
-- partida completa de **1 minuto e 50 segundos**, dividida em dois tempos de 55 segundos
-- saída de bola no centro, troca de lados no intervalo e reinício central após gol
-- impedimento, lateral, escanteio, tiro de meta, falta, pênalti, amarelo e vermelho
-- passe, chute carregado/colocado, bote, roubo, troca de jogador e carrinho
-- goleiro com leitura de trajetória, saída, mergulho, rebote e distribuição; reação ajustada para permitir uma taxa de gols mais equilibrada
+Oito atletas por lado e dois tempos de 55 segundos, totalizando **1 minuto e 50 segundos de bola em jogo**, além das interrupções. Formações `2-3-2`, `3-2-2` e `2-2-3`, com posturas equilibrada, ofensiva, defensiva e contra-ataque. Saída central, troca de lados, impedimento, lateral, escanteio, tiro de meta, faltas, pênaltis e cartões.
 
-### OVR e elencos
+| Ação          | Jogador 1 | Jogador 2 |
+| ------------- | --------- | --------- |
+| Movimento     | WASD      | Setas     |
+| Correr        | Shift     | Enter     |
+| Passe         | F         | K         |
+| Chute         | Espaço    | L         |
+| Bote          | E         | J         |
+| Trocar atleta | Q         | I         |
+| Carrinho      | R         | U         |
+| Pausar        | P / Esc   | P / Esc   |
 
-- velocidade máxima, aceleração, agilidade, passe, finalização, domínio, bote, alcance do carrinho e reação do goleiro são calculados pelo OVR e pelos atributos do atleta
-- perfis de jogador (criador, finalizador, velocista, motor e marcador) alteram decisões e movimentação da IA
-- cada disputa compara diretamente os jogadores envolvidos: defensor contra o controle do atacante e finalizador contra o goleiro
-- o OVR do time é a média real dos oito titulares e também compara a força dos dois elencos; equipes mais qualificadas ficam perceptivelmente mais fortes sem tornar o resultado automático
-- escalações compactas com 8 atletas de 24 clubes brasileiros e europeus
-- seletor de clubes com filtros para Brasileirão e Europa, nome, liga e OVR da escalação
-- seletor funcional de liga e matchmaking estrito: campeonato e carreira só permitem confrontos entre clubes da competição escolhida
-- tabela completa da liga com jogos, vitórias, empates, derrotas, gols pró, gols contra, saldo e pontos
-- escudos carregados a partir dos domínios oficiais com fallback interno, além de uniformes desenhados com cores, calções, meiões e padrões característicos de cada clube
+O modo duplas funciona no mesmo teclado. O link público permite que cada amigo abra sua própria sessão; esta versão não sincroniza partidas entre computadores. A carreira é salva no navegador e não é compartilhada entre dispositivos.
 
-Os dados de elenco são um recorte editável no objeto `ROSTERS`, em `app/football-game.tsx`. Transferências reais mudam durante a temporada, então o projeto não promete atualização automática em tempo real.
+## Executar e verificar
 
-### Modos
-
-- **Amistoso:** partida rápida contra IA ou para 2 jogadores locais
-- **Liga:** escolha da competição, adversários da mesma liga e tabela de pontos corridos organizada
-- **Copa:** mata-mata continental (Libertadores/Champions) ou Mundial de Clubes, com quartas, semifinal e final
-- **Carreira:** orçamento proporcional ao clube, torcida, resultados, compras e vendas atômicas, titulares e reservas; o save fica no `localStorage` do navegador
-
-## Como o código está organizado
-
-| Etapa           | Código principal                                   | Responsabilidade                                                |
-| --------------- | -------------------------------------------------- | --------------------------------------------------------------- |
-| Elencos e OVR   | `ROSTERS`, `attributeProfile`, `lineupFor`         | Transforma OVR em atributos e escolhe os titulares por posição  |
-| Formações       | `FORMATIONS`, `TACTICS`, `roleProgressBounds`, `aiTarget` | Define âncoras, zonas por função e deslocamento tático      |
-| Física e regras | `updateMatch`, `updateBall`, `resolveSlideTackles` | Integra movimento, bola, colisões, faltas e reinícios           |
-| Goleiro         | `updateKeeper`, `resolveKeeperSmothers`            | Prevê trajetória, decide saída e calcula defesa/rebote          |
-| Competições     | `leagueTeamsFor`, `simulateLeagueRound`, estado de copa e carreira | Filtra ligas, atualiza tabela, mata-mata e caixa |
-| Mercado         | `completePurchase`, `completeSale`, `lineupFor`    | Aplica caixa, plantel e escalação em uma única operação         |
-| Interface       | componente `FootballGame` e `app/globals.css`      | Menu, HUD, mercado, responsividade e níveis gráficos            |
-
-## Controles
-
-| Ação           | Jogador 1    | Jogador 2    |
-| -------------- | ------------ | ------------ |
-| Movimento      | `WASD`       | Setas        |
-| Correr         | `Shift`      | `Enter`      |
-| Passe          | `F`          | `K`          |
-| Chute          | `Espaço`     | `L`          |
-| Roubar         | `E`          | `J`          |
-| Trocar jogador | `Q`          | `I`          |
-| Carrinho       | `R`          | `U`          |
-| Pausar         | `P` ou `Esc` | `P` ou `Esc` |
-
-No celular, use o analógico virtual e os botões de ação exibidos na tela.
-
-## Executar localmente
-
-Requisito: Node.js 22 ou superior.
+Requisito: Node.js 22.13 ou superior; a Vercel usa Node.js 24.
 
 ```bash
-npm install
-npm run dev
+npm ci
+npm run dev:vercel
 ```
-
-Validação e produção:
 
 ```bash
-npm run build
-npm test
-npm run start
+npm run test:game
+npm run lint
+npm run build:vercel
+npm run start:vercel
 ```
 
-Na Vercel, o arquivo `vercel.json` seleciona o build Next.js nativo com
-`npm run build:vercel`, sem remover o build Vinext usado pelo ChatGPT Sites.
+`build:vercel` prepara os escudos locais e executa os testes do motor antes de compilar. As imagens são baixadas uma vez no build e verificadas por SHA-256; fontes, checksums e script ficam no GitHub. Os comandos `dev`, `build` e `start` originais continuam disponíveis para Vinext/ChatGPT Sites. Veja [DEPLOY.md](./DEPLOY.md).
 
-As instruções completas para publicar em um servidor estão em [DEPLOY.md](./DEPLOY.md).
+## Organização do código
 
-## Arquivos principais
+| Módulo                           | Responsabilidade                                                           |
+| -------------------------------- | -------------------------------------------------------------------------- |
+| `data/football-catalog.json`     | Clubes, atletas, função, idade, massa, OVR e origem dos dados              |
+| `lib/football-engine.ts`         | Partida, atributos, tática, decisões, movimento, bola, colisões e regras   |
+| `lib/football-webgl.ts`          | Estádio, materiais, texturas, luzes, câmera e animação articulada          |
+| `lib/football-renderer.ts`       | Alternativa em Canvas 2D                                                   |
+| `lib/football-competition.ts`    | Calendário, classificação, confrontos e resultados simulados               |
+| `lib/football-career.ts`         | Economia, contratos, transferências, escalação, evolução, base e diretoria |
+| `app/career-office.tsx`          | Telas de elenco, negociação, base e objetivos                              |
+| `app/football-game.tsx`          | Menu, teclado/toque, HUD, ciclo da partida e persistência                  |
+| `tests/football-engine.test.mjs` | Testes de comportamento da simulação, calendário e transações              |
 
-- `app/football-game.tsx`: motor, regras, IA, modos e interface
-- `app/globals.css`: visual, HUD, menus, mercado e controles responsivos
-- `app/page.tsx`: página principal
-- `tests/*.test.mjs`: verificações de renderização e componentes
-- `Dockerfile`: implantação em serviços compatíveis com contêiner
+O renderizador apenas lê o estado da partida. Transferências produzem uma nova versão da carreira: uma proposta rejeitada não altera caixa nem plantéis. A escalação é montada por função, preservando os contratados selecionados pelo usuário. O mesmo motor de atributos é usado por humanos e bots.
 
-## Identidade visual e licenças
+## Dados e limites da representação
 
-Este é um projeto independente e educacional, sem vínculo com clubes, ligas ou publicadoras. Os menus consultam os favicons publicados pelos domínios oficiais; se a rede falhar, o jogo usa um emblema tipográfico interno. Os uniformes são desenhados pelo próprio motor, sem patrocinadores. Nomes, escudos e marcas continuam pertencendo aos respectivos titulares. Consulte [CREDITS.md](./CREDITS.md) antes de redistribuir ou usar comercialmente.
+O catálogo contém 3.757 atletas reais obtidos em um recorte dos dados públicos da ESPN em setembro de 2026; até 28 por clube formam o plantel profissional utilizável, selecionado por posição. O catálogo não acompanha transferências automaticamente. OVR, potencial, valores, salários e contratos são estimativas próprias, não avaliações oficiais da EA ou informações financeiras reais.
+
+Os uniformes usam cores e padrões característicos com texturas procedurais; não são digitalizações licenciadas das camisas atuais. As animações são procedurais, sem captura de movimento. Este é um projeto de navegador em evolução, com futebol adaptado a 8×8, e não uma reprodução da complexidade ou fidelidade de EA FC. Fontes e créditos em [CREDITS.md](./CREDITS.md).

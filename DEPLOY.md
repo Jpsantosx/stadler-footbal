@@ -1,82 +1,40 @@
-# Publicação do Stadler Football 3D
+# Publicação
 
-## Versão principal já publicada
+A versão principal é [stadler-footbal.vercel.app](https://stadler-footbal.vercel.app), no projeto Vercel `stadler-footbal`.
 
-Compartilhe este endereço:
+## Vercel e GitHub
 
-<https://stadler-footbal.vercel.app>
+1. Importe `Jpsantosx/stadler-footbal` na sua conta Vercel.
+2. Use o preset Next.js e Node.js 24. O arquivo `vercel.json` já define `npm run build:vercel`.
+3. Não são necessárias chaves de API para jogar; o catálogo acompanha o projeto e o build baixa os escudos originais com verificação de checksum.
+4. Publique uma prévia, confira o menu, uma partida e a central da carreira.
+5. Promova a prévia validada para produção.
 
-Espelho alternativo:
-
-<https://stadler-football-3d.joaopedrostadl554190.chatgpt.site>
-
-Qualquer computador com navegador moderno pode abrir o jogo pelo link. O modo “2 jogadores” atual usa o mesmo teclado/dispositivo; partidas sincronizadas entre dois computadores exigem um servidor de salas e netcode, que não faz parte desta versão.
-
-## Publicar a partir do GitHub com Docker
-
-O repositório inclui um `Dockerfile`, compatível com serviços que aceitam contêineres, como Render, Railway, Fly.io e uma VPS.
-
-1. Faça fork ou clone de `https://github.com/Jpsantosx/stadler-footbal`.
-2. No painel do provedor, crie um novo serviço Web a partir desse repositório.
-3. Selecione implantação por `Dockerfile`.
-4. Configure a porta como `3000` se o provedor não injetar a variável `PORT` automaticamente.
-5. Execute o deploy e abra o domínio HTTPS fornecido.
-
-Teste local do mesmo contêiner:
+Pela CLI autenticada:
 
 ```bash
-docker build -t stadler-football .
-docker run --rm -p 3000:3000 stadler-football
-```
-
-Depois, acesse <http://localhost:3000>.
-
-## Publicar sem Docker
-
-Em um servidor com Node.js 22:
-
-```bash
-git clone https://github.com/Jpsantosx/stadler-footbal.git
-cd stadler-footbal
 npm ci
-npm run build
-PORT=3000 npm run start
-```
-
-Coloque Nginx, Caddy ou o proxy HTTPS do provedor na frente da porta 3000.
-
-## Vercel
-
-O projeto possui uma configuração própria em `vercel.json`. Ela mantém o build
-Vinext usado pelo ChatGPT Sites e executa o aplicativo como Next.js nativo na
-Vercel.
-
-Pelo painel, importe o repositório `Jpsantosx/stadler-footbal` e mantenha as
-configurações detectadas. Pela linha de comando:
-
-```bash
+npm run lint
+npm run build:vercel
 vercel link
 vercel
-vercel --prod
+vercel promote URL_DA_PREVIA
 ```
 
-O comando de produção usado pela Vercel é `npm run build:vercel`.
+A integração GitHub pode gerar prévias para branches e publicar `main` automaticamente. Não coloque tokens no repositório.
 
-## Netlify e GitHub Pages
-
-O runtime principal usa renderização de servidor. Por isso, GitHub Pages não é
-um destino direto e Netlify requer uma adaptação específica. Para esses casos,
-prefira a publicação ativa ou um provedor de contêiner descrito acima.
-
-## Atualizações
-
-Depois de alterar o código:
+## Servidor Node.js
 
 ```bash
-npm test
-git add .
-git commit -m "Descrição da melhoria"
-git push origin main
+npm ci
+npm run build:vercel
+npm run start:vercel
 ```
 
-Um serviço conectado ao GitHub pode fazer novo deploy automaticamente a cada `push`.
+O servidor atende na porta 3000 por padrão. Configure HTTPS no provedor.
+
+## Compartilhamento e saves
+
+O link pode ser aberto em computadores diferentes. Duplas usa o mesmo teclado; partidas online sincronizadas precisam de servidor de salas e netcode, ainda não implementados. O save da carreira usa `localStorage`, separado por navegador e domínio; uma carreira iniciada numa prévia não aparece automaticamente no domínio de produção.
+
+O build Vinext legado permanece disponível para ChatGPT Sites, mas a atualização Matchday tem a Vercel como destino principal.

@@ -4,7 +4,7 @@ import "./globals.css";
 export const metadata: Metadata = {
   title: "Stadler Football 3D — Brasileirão x Europa",
   description:
-    "Jogo de futebol leve para navegador com 11 contra 11, dois tempos, regras completas e clubes brasileiros e europeus.",
+    "Futebol 8 contra 8 em 3D: 116 clubes, seis ligas, táticas, duplas locais e carreira com mercado, contratos e categorias de base.",
   icons: {
     icon: "/favicon.svg",
     shortcut: "/favicon.svg",
