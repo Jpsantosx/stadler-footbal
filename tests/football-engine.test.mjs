@@ -585,3 +585,10 @@ test("a keeper holding the ball inside the box cannot be cleanly tackled through
   assert.equal(defense.tackleContact(s,bot,false),"foul");
   assert.equal(defense.tackleContact(s,bot,true),"foul");
 });
+
+test("ceremony clock handles slow rendered frames independently of the physics timestep",()=>{
+  const s=match();s.cupRound=2;s.homeScore=1;defense.finishMatch(s);
+  for(let i=0;i<34;i++)presentation.updateTitleCelebration(s,.5);
+  assert.equal(s.celebration.time,17);assert.equal(s.celebration.complete,true);
+  assert.equal(s.elapsed,0);
+});

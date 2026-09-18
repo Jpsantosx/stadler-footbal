@@ -59,7 +59,7 @@ export function beginTitleCelebration(state: MatchState): boolean {
 export function updateTitleCelebration(state: MatchState, dt: number) {
   const c = state.celebration;
   if (!c || c.complete) return;
-  c.time = Math.min(c.duration, c.time + Math.max(0, Math.min(dt, 0.1)));
+  c.time = Math.min(c.duration, c.time + Math.max(0, Math.min(dt, 1)));
   c.complete = c.time >= c.duration;
   // Only the presentation clock advances. Physics, result, stamina and match time stay frozen.
 }

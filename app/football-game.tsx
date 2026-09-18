@@ -754,7 +754,8 @@ export default function FootballGame() {
 
     const loop = (now: number) => {
       const state = engineRef.current;
-      const dt = Math.min(0.1, Math.max(0, (now - previous) / 1000));
+      const frameTime = Math.max(0, (now - previous) / 1000);
+      const dt = Math.min(0.1, frameTime);
       previous = now;
       resize();
       if (state) {
@@ -769,7 +770,7 @@ export default function FootballGame() {
             }
           }
         } else if (screenRef.current === "celebrating") {
-          if (!document.hidden) updateTitleCelebration(state, dt);
+          if (!document.hidden) updateTitleCelebration(state, frameTime);
           if (state.celebration?.complete) {
             if (ceremonyPreviewRef.current) {
               ceremonyPreviewRef.current = false; setCeremonyPreview(false);

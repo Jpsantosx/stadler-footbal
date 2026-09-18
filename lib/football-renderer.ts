@@ -949,11 +949,20 @@ function drawPitchWear(ctx: CanvasRenderingContext2D, view: View, state: MatchSt
   ctx.restore();
 }
 
+const ceremonyBackdrops = new WeakMap<MatchState, { width: number; height: number; canvas: HTMLCanvasElement }>();
+
 function drawTitleCeremony(ctx: CanvasRenderingContext2D, view: View, state: MatchState) {
   const c=state.celebration!;
   const team=c.winner==="home"?state.homeTeam:state.awayTeam;
   const w=view.width,h=view.height,t=c.time, floor=h*.72;
-  ctx.save();ctx.filter="blur(3px)";drawStadium(ctx,view,"balanced");drawField(ctx,view,"balanced",state);ctx.restore();
+  let backdrop = ceremonyBackdrops.get(state);
+  if (!backdrop || backdrop.width !== w || backdrop.height !== h) {
+    const canvas = document.createElement("canvas"); canvas.width = w; canvas.height = h;
+    const background = canvas.getContext("2d")!;
+    drawStadium(background,view,"balanced"); drawField(background,view,"balanced",state);
+    backdrop = { width: w, height: h, canvas }; ceremonyBackdrops.set(state,backdrop);
+  }
+  ctx.save();ctx.filter="blur(3px)";ctx.drawImage(backdrop.canvas,0,0,w,h);ctx.restore();
   ctx.fillStyle="rgba(4,12,22,.6)";ctx.fillRect(0,0,w,h);
   const glow=ctx.createRadialGradient(w*.5,floor-90,0,w*.5,floor-90,w*.55);
   glow.addColorStop(0,"rgba(216,184,92,.18)");glow.addColorStop(1,"rgba(216,184,92,0)");ctx.fillStyle=glow;ctx.fillRect(0,0,w,h);
