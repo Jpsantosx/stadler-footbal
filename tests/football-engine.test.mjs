@@ -417,3 +417,171 @@ test("board can dismiss the manager and season transition ages contracts", () =>
   assert.equal(next.management.week, 0);
   assert.equal(next.management.contracts[id].age, age + 1);
 });
+
+// Defensive regression suite: contact must be reachable outside the body collision radius.
+const defense = await import("../lib/football-engine.ts");
+const presentation = await import("../lib/football-presentation.ts");
+const pitchModule = await import("../lib/football-pitch.ts");
+const touch = await import("../lib/football-input.ts");
+function duel() {
+  const s = match(); s.frozen = 0; s.setPiece = null;
+  const owner = s.players.find(p => p.side === "home" && p.role === "FW");
+  const bot = s.players.find(p => p.side === "away" && p.role === "DF");
+  Object.assign(owner,{x:70,y:32,facingX:1,facingY:0,vx:0,vy:0,controlShield:0});
+  Object.assign(bot,{x:72,y:32,facingX:-1,facingY:0,vx:0,vy:0,defending:85});
+  Object.assign(s.ball,{owner:owner.id,x:71.2,y:32,z:.1,vx:0,vy:0});
+  s.selectedId=owner.id;
+  return {s,owner,bot};
+}
+
+test("a bot initiates a real lunge outside body overlap and wins clean ball contact",()=>{
+  const {s,owner,bot}=duel();
+  s.players = [owner,bot];
+  defense.updateSteals(s,.22,false);
+  assert.equal(bot.defensiveState,"tackle");
+  assert.ok(bot.stealTimer>0);
+  assert.equal(s.ball.owner,owner.id,"starting an animation must not steal the ball remotely");
+  defense.resolveStealAttempts(s,false);
+  assert.equal(s.ball.owner,bot.id);
+  assert.equal(s.ball.lastPlayerId,bot.id);
+  assert.equal(s.stats.awayFouls,0);
+  assert.equal(s.ball.vx,0);
+});
+
+test("rear body contact is a foul even for an elite defender; missing the ball gives no possession",()=>{
+  for(const sliding of [false,true]){
+    const {s,owner,bot}=duel();
+    Object.assign(bot,{x:68.4,defending:99,facingX:1});
+    assert.equal(defense.tackleContact(s,bot,sliding),"foul");
+    defense.beginTackle(s,bot,sliding);
+    if(sliding)defense.resolveSlideTackles(s,false);else defense.resolveStealAttempts(s,false);
+    assert.equal(s.stats.awayFouls,1);
+    assert.ok(s.setPiece);
+    assert.notEqual(s.ball.owner,bot.id);
+    assert.equal(s.setPiece.side,owner.side);
+  }
+  const {s,bot}=duel();s.ball.y=38;
+  assert.equal(defense.tackleContact(s,bot,false),"none");
+});
+
+test("holding or circling recruits a second defender and a pass clears the pressure history",()=>{
+  for(const circle of [false,true]){
+    const {s,owner}=duel();
+    for(let i=0;i<190;i++){
+      if(circle){owner.x=70+3*Math.cos(i/60*Math.PI*2/1.2);owner.y=32+3*Math.sin(i/60*Math.PI*2/1.2);}
+      defense.updateDefensivePressure(s,1/60,false);
+    }
+    assert.ok(s.pressure.stagnant>=1.2);
+    const first=defense.pressingPlayer(s,"away");
+    assert.notEqual(s.pressure.secondaryId,null);
+    assert.notEqual(s.pressure.secondaryId,first.id);
+    const support=s.players.find(p=>p.id===s.pressure.secondaryId);
+    assert.notEqual(support.role,"GK");
+    const teammate=s.players.find(p=>p.side==="home"&&p.id!==owner.id&&p.role!=="GK");
+    s.ball.owner=teammate.id;s.selectedId=teammate.id;
+    defense.updateDefensivePressure(s,1/60,false);
+    assert.equal(s.pressure.secondaryId,null);
+    assert.equal(s.pressure.held,0);
+  }
+});
+
+test("stationary human possession is challenged in a real match update",()=>{
+  const {s,owner}=duel();
+  let contested=false;
+  for(let i=0;i<3*120;i++){
+    updateMatch(s,input(),1/120,false);
+    if(s.ball.owner!==owner.id||s.setPiece){contested=true;break;}
+  }
+  assert.ok(contested,"defenders may not orbit a stationary carrier indefinitely");
+});
+
+test("keepers close the angle before a shot and react only after recognition delay",()=>{
+  const s=match();s.frozen=0;
+  const keeper=s.players.find(p=>p.side==="home"&&p.role==="GK");
+  const attacker=s.players.find(p=>p.side==="away"&&p.role==="FW");
+  Object.assign(attacker,{x:15,y:37,vx:-6,vy:4});s.ball.owner=attacker.id;
+  const close=defense.keeperAngleTarget(s,keeper);
+  attacker.x=60;const far=defense.keeperAngleTarget(s,keeper);
+  assert.ok(close.x>far.x&&close.y>32);
+  Object.assign(attacker,{x:15,y:32,vx:0,vy:0});Object.assign(keeper,{x:4.8,y:32,vx:0,vy:0});
+  defense.kickBall(s,attacker,0,32,35,"shot",13);
+  const delay=keeper.keeperReactionTimer;
+  assert.ok(delay>=.105&&delay<=.26);
+  defense.updateKeeper(s,keeper,delay*.5);
+  assert.equal(keeper.keeperDiveTimer,0);
+  assert.equal(keeper.keeperSave,"set");
+  defense.updateKeeper(s,keeper,delay);
+  assert.equal(keeper.keeperSave,"tip");
+  assert.ok(keeper.keeperDiveTimer>0);
+});
+
+test("a close one-on-one triggers smothering inside the penalty area",()=>{
+  const s=match();const keeper=s.players.find(p=>p.side==="away"&&p.role==="GK");
+  const owner=s.players.find(p=>p.side==="home"&&p.role==="FW");
+  Object.assign(keeper,{x:94,y:32,facingX:-1,keeperReactionTimer:0});Object.assign(owner,{x:92,y:32});
+  Object.assign(s.ball,{owner:owner.id,x:93,y:32});
+  defense.resolveKeeperSmothers(s);
+  assert.equal(keeper.keeperSave,"smother");
+  assert.ok(keeper.keeperDiveTimer>0);
+  assert.notEqual(s.ball.owner,owner.id);
+});
+
+test("only the cup final celebrates, including an away winner, and match clocks freeze",()=>{
+  for(const round of [null,0,1,2]){
+    const s=match();s.cupRound=round;s.homeScore=0;s.awayScore=2;
+    defense.finishMatch(s);
+    assert.equal(!!s.celebration,round===2);
+    if(round!==2)continue;
+    assert.equal(s.celebration.winner,"away");
+    const original=structuredClone({elapsed:s.elapsed,remaining:s.remaining,players:s.players,stats:s.stats});
+    const captain=s.players.find(p=>p.id===s.celebration.captainId);
+    for(let i=0;i<180;i++){updateMatch(s,input(),.1,false);presentation.updateTitleCelebration(s,.1);}
+    assert.deepEqual({elapsed:s.elapsed,remaining:s.remaining,players:s.players,stats:s.stats},original);
+    assert.equal(s.celebration.complete,true);
+    assert.equal(presentation.celebrationPose(s.celebration,captain).lift,1);
+    const ref=s.celebration;defense.finishMatch(s);assert.equal(s.celebration,ref);
+  }
+});
+
+test("cup ties use recorded penalty kicks, independently of possession",()=>{
+  const a=match(),b=match();a.cupRound=b.cupRound=2;
+  a.stats.homePossession=100;b.stats.awayPossession=100;
+  defense.finishMatch(a);defense.finishMatch(b);
+  assert.deepEqual(a.shootout,b.shootout);
+  assert.ok(a.shootout.kicks.length>=6);
+  assert.notEqual(a.shootout.home,a.shootout.away);
+  assert.equal(a.winner,b.winner);
+  assert.equal(a.celebration.winner,a.winner);
+});
+
+test("grass wear accumulates at traffic positions, slides leave persistent scuffs and a new match resets them",()=>{
+  const s=match(),p=s.players[1];Object.assign(p,{x:50,y:32,vx:8,vy:0,slideTimer:.4});
+  pitchModule.updatePitchWear(s.pitchWear,[p],.2);
+  assert.equal(s.pitchWear.marks.length,1);
+  const index=16*50+25;
+  assert.ok(s.pitchWear.cells[index]>0);
+  assert.equal(s.pitchWear.cells[0],0);
+  p.slideTimer=0;pitchModule.updatePitchWear(s.pitchWear,[p],.2);
+  assert.equal(s.pitchWear.marks.length,1);
+  assert.equal(match().pitchWear.cells[index],0);
+});
+
+test("mobile joystick has a dead zone, bounded diagonal speed and reset cancels a held shot",()=>{
+  const rect={left:10,top:20,width:104,height:104};
+  assert.deepEqual(touch.joystickVector(62,72,rect),{x:0,y:0});
+  const diagonal=touch.joystickVector(300,300,rect);
+  assert.ok(Math.abs(Math.hypot(diagonal.x,diagonal.y)-1)<1e-9);
+  const keys=input(),s=match();keys.touchX=1;keys.touchSprint=true;keys.keys.add("KeyD");s.chargingShot=true;s.shotCharge=.8;
+  touch.clearMatchInput(keys,s);
+  assert.equal(keys.touchX,0);assert.equal(keys.keys.size,0);assert.equal(keys.touchSprint,false);
+  assert.equal(s.chargingShot,false);assert.equal(s.shotCharge,0);
+});
+
+test("a keeper holding the ball inside the box cannot be cleanly tackled through his hands",()=>{
+  const {s,bot}=duel();
+  const keeper=s.players.find(p=>p.side==="home"&&p.role==="GK");
+  Object.assign(keeper,{x:6,y:32}); Object.assign(bot,{x:7.5,y:32,facingX:-1});
+  Object.assign(s.ball,{owner:keeper.id,x:7,y:32,z:.7});
+  assert.equal(defense.tackleContact(s,bot,false),"foul");
+  assert.equal(defense.tackleContact(s,bot,true),"foul");
+});

@@ -1,7 +1,9 @@
 import catalog from "../data/football-catalog.json" with { type: "json" };
+import { beginTitleCelebration, resolveShootout, type TitleCelebration, type Shootout } from "./football-presentation.ts";
+import { createPitchWear, updatePitchWear, type PitchWear } from "./football-pitch.ts";
 export type Side = "home" | "away";
 export type Role = "GK" | "DF" | "MF" | "FW";
-export type Screen = "menu" | "playing" | "finished";
+export type Screen = "menu" | "playing" | "celebrating" | "finished";
 export type Quality = "performance" | "balanced" | "ultra";
 export type Difficulty = "easy" | "normal" | "hard";
 export type GameMode = "solo" | "local2p";
@@ -145,6 +147,10 @@ export type MarketEntry = {
 };
 
 export type Player = {
+  defensiveState: "shape" | "chase" | "cover" | "tackle" | "recover";
+  tackleReadiness: number;
+  keeperSave: "set" | "dive" | "tip" | "smother";
+  keeperShotPending: boolean;
   possessionTime: number;
   squadId: string;
   mass: number;
@@ -248,6 +254,12 @@ export type MatchStats = {
 };
 
 export type MatchState = {
+  cupRound: number | null;
+  winner: Side | null;
+  shootout: Shootout | null;
+  celebration: TitleCelebration | null;
+  pitchWear: PitchWear;
+  pressure: { ownerId: number | null; held: number; window: number; path: number; anchorX: number; anchorY: number; lastX: number; lastY: number; stagnant: number; secondaryId: number | null };
   players: Player[];
   ball: Ball;
   homeTeam: Team;
@@ -699,6 +711,10 @@ export function buildPlayers(
         keeperReactionTimer: 0,
         keeperCommitTimer: 0,
         keeperTargetY: 32,
+        keeperSave: "set",
+        keeperShotPending: false,
+        defensiveState: "shape",
+        tackleReadiness: 0,
         slideTimer: 0,
         slideHit: false,
         stealTimer: 0,
@@ -730,6 +746,9 @@ export function createMatch(
   awaySquad?: SquadSeed[],
 ): MatchState {
   const state: MatchState = {
+    cupRound: null, winner: null, shootout: null, celebration: null,
+    pitchWear: createPitchWear(),
+    pressure: { ownerId: null, held: 0, window: 0, path: 0, anchorX: 50, anchorY: 32, lastX: 50, lastY: 32, stagnant: 0, secondaryId: null },
     players: buildPlayers(
       homeTeam,
       awayTeam,
@@ -962,8 +981,14 @@ export function resetPositions(state: MatchState, kickoffSide: Side) {
     player.keeperReactionTimer = 0;
     player.keeperCommitTimer = 0;
     player.keeperTargetY = 32;
+    player.keeperSave = "set";
+    player.keeperShotPending = false;
+    player.defensiveState = "shape";
+    player.tackleReadiness = 0;
     player.stamina = Math.min(100, player.stamina + 10);
   });
+  state.pressure.ownerId = null;
+  state.pressure.secondaryId = null;
   state.ball.x = 50;
   state.ball.y = 32;
   state.ball.vx = 0;
@@ -1071,6 +1096,8 @@ export function kickBall(
         0.26,
       );
       opposingKeeper.keeperCommitTimer = 0;
+      opposingKeeper.keeperShotPending = true;
+      opposingKeeper.keeperSave = "set";
     }
   }
   if (kind === "pass") {
@@ -1738,82 +1765,46 @@ export function switchToClosestPlayer(state: MatchState, side: Side) {
   );
 }
 
-export function stealBall(state: MatchState, side: Side = "home") {
-  const selected = getPlayer(state, selectedIdForSide(state, side));
-  if (
-    !selected ||
-    selected.role === "GK" ||
-    selected.sentOff ||
-    selected.tackleCooldown > 0 ||
-    selected.stealTimer > 0 ||
-    selected.slideTimer > 0 ||
-    selected.stumbleTimer > 0 ||
-    selected.stamina < 3
-  ) {
-    return;
-  }
-  const opponentOwner = getPlayer(state, state.ball.owner);
-  if (opponentOwner?.side === side) return;
+export function beginTackle(state: MatchState, player: Player, sliding = false) {
+  if (player.role === "GK" || player.sentOff || player.tackleCooldown > 0 ||
+    player.slideTimer > 0 || player.stealTimer > 0 || player.stumbleTimer > 0 ||
+    player.stamina < (sliding ? 7 : 3) || state.paused || state.finished || state.setPiece) return false;
+  const owner = getPlayer(state, state.ball.owner);
+  if (owner?.side === player.side) return false;
+  const factor = playerAttributeFactor(player.defending);
+  const lead = clamp((player.defending - 50) * 0.0014, 0.02, 0.07);
+  const dx = state.ball.x + (owner?.vx ?? state.ball.vx) * lead - player.x;
+  const dy = state.ball.y + (owner?.vy ?? state.ball.vy) * lead - player.y;
+  const magnitude = Math.max(0.001, Math.hypot(dx, dy));
+  player.facingX = dx / magnitude;
+  player.facingY = dy / magnitude;
+  player.vx = player.facingX * (sliding ? 25 : 18.5) * factor;
+  player.vy = player.facingY * (sliding ? 25 : 18.5) * factor;
+  player.defensiveState = "tackle";
+  player.tackleReadiness = 0;
+  player.tackleCooldown = clamp((sliding ? 1.55 : 0.86) / factor, sliding ? 1.15 : 0.58, sliding ? 1.9 : 1.1);
+  player.stamina = Math.max(0, player.stamina - (sliding ? 8 : 3));
+  if (sliding) { player.slideTimer = 0.5; player.slideHit = false; }
+  else { player.stealTimer = clamp(0.27 / factor, 0.19, 0.34); player.stealHit = false; }
+  return true;
+}
 
-  const target =
-    opponentOwner ?? (state.ball.owner === null ? state.ball : null);
-  if (!target) return;
-  const targetDistance = distance(selected.x, selected.y, target.x, target.y);
-  const defendingFactor = playerAttributeFactor(selected.defending);
-  const maximumReach = (opponentOwner ? 4.7 : 4.25) * defendingFactor;
-  if (targetDistance > maximumReach) {
+export function stealBall(state: MatchState, side: Side = "home") {
+  const player = getPlayer(state, selectedIdForSide(state, side));
+  if (!player) return;
+  if (distance(player.x, player.y, state.ball.x, state.ball.y) > 4.7 * playerAttributeFactor(player.defending)) {
     setMessage(state, "APROXIME PARA DAR O BOTE", 0.36);
     return;
   }
-
-  const dx = target.x - selected.x;
-  const dy = target.y - selected.y;
-  const magnitude = Math.max(0.001, Math.hypot(dx, dy));
-  selected.facingX = dx / magnitude;
-  selected.facingY = dy / magnitude;
-  selected.vx = selected.facingX * 18.5 * defendingFactor;
-  selected.vy = selected.facingY * 18.5 * defendingFactor;
-  selected.stealTimer = clamp(0.27 / defendingFactor, 0.19, 0.34);
-  selected.stealHit = false;
-  selected.tackleCooldown = clamp(0.58 / defendingFactor, 0.4, 0.74);
-  selected.stamina = Math.max(0, selected.stamina - 3);
+  beginTackle(state, player);
 }
 
 export function slideTackle(state: MatchState, side: Side = "home") {
-  const selected = getPlayer(state, selectedIdForSide(state, side));
-  if (
-    !selected ||
-    selected.role === "GK" ||
-    selected.tackleCooldown > 0 ||
-    selected.stealTimer > 0 ||
-    selected.slideTimer > 0 ||
-    selected.stamina < 7
-  ) {
-    return;
+  const player = getPlayer(state, selectedIdForSide(state, side));
+  if (player && beginTackle(state, player, true)) {
+    state.cameraShake = Math.max(state.cameraShake, 0.12);
+    setMessage(state, "CARRINHO!", 0.34);
   }
-  const opponentOwner = getPlayer(state, state.ball.owner);
-  let dx = selected.facingX;
-  let dy = selected.facingY;
-  if (
-    opponentOwner &&
-    opponentOwner.side !== side &&
-    distance(selected.x, selected.y, opponentOwner.x, opponentOwner.y) < 8
-  ) {
-    dx = opponentOwner.x - selected.x;
-    dy = opponentOwner.y - selected.y;
-  }
-  const magnitude = Math.max(0.001, Math.hypot(dx, dy));
-  const defendingFactor = playerAttributeFactor(selected.defending);
-  selected.facingX = dx / magnitude;
-  selected.facingY = dy / magnitude;
-  selected.vx = selected.facingX * 25 * defendingFactor;
-  selected.vy = selected.facingY * 25 * defendingFactor;
-  selected.slideTimer = clamp(0.48 / defendingFactor, 0.37, 0.59);
-  selected.slideHit = false;
-  selected.tackleCooldown = clamp(1.35 / defendingFactor, 1.02, 1.72);
-  selected.stamina = Math.max(0, selected.stamina - 8);
-  state.cameraShake = Math.max(state.cameraShake, 0.12);
-  setMessage(state, "CARRINHO!", 0.34);
 }
 
 export function movePlayer(
@@ -1929,128 +1920,61 @@ export function resolvePlayerCollisions(state: MatchState) {
   }
 }
 
+export function awardTacklePossession(state: MatchState, player: Player, carrier?: Player) {
+  Object.assign(state.ball, { owner: player.id, lastTouch: player.side, lastPlayerId: player.id,
+    x: player.x + player.facingX, y: player.y + player.facingY, z: 0.12, vx: 0, vy: 0, vz: 0, spin: 0, looseTimer: 0 });
+  player.possessionTime = 0;
+  player.controlShield = controlShieldDuration(player);
+  player.decisionCooldown = 0.28;
+  player.stealTimer = 0;
+  player.slideTimer = Math.min(player.slideTimer, 0.16);
+  player.defensiveState = "recover";
+  if (carrier) { carrier.controlShield = 0; carrier.possessionTime = 0; }
+  state.pressure.ownerId = null;
+  if (player.side === "home") state.selectedId = player.id;
+  else if (state.gameMode === "local2p") state.selectedAwayId = player.id;
+  state.cameraShake = Math.max(state.cameraShake, 0.18);
+  setMessage(state, "DESARME LIMPO", 0.6);
+}
+
+export function tackleContact(state: MatchState, tackler: Player, sliding: boolean): "ball" | "foul" | "none" {
+  const carrier = getPlayer(state, state.ball.owner);
+  if (carrier?.side === tackler.side) return "none";
+  if (carrier?.role === "GK" && insideKeeperArea(state, carrier)) {
+    return distance(tackler.x, tackler.y, carrier.x, carrier.y) < 1.9 ? "foul" : "none";
+  }
+  const ballDistance = distance(tackler.x, tackler.y, state.ball.x, state.ball.y);
+  const reach = (sliding ? 2.45 : 2.05) + (tackler.defending - 75) * 0.014;
+  if (carrier) {
+    const bodyDistance = distance(tackler.x, tackler.y, carrier.x, carrier.y);
+    const rear = ((tackler.x - carrier.x) * carrier.facingX + (tackler.y - carrier.y) * carrier.facingY) / Math.max(0.001, bodyDistance) < -0.3;
+    // A foot cannot reach the ball through the carrier's body.
+    if (bodyDistance < (sliding ? 2.15 : 1.9) && rear && ballDistance > bodyDistance - 0.25) return "foul";
+    if (sliding && bodyDistance < 1.65 && ballDistance > reach) return "foul";
+  }
+  const alignment = ((state.ball.x - tackler.x) * tackler.facingX + (state.ball.y - tackler.y) * tackler.facingY) / Math.max(0.01, ballDistance);
+  return state.ball.z < (sliding ? 0.85 : 1.25) && ballDistance <= reach && alignment > -0.15 ? "ball" : "none";
+}
+
 export function resolveStealAttempts(state: MatchState, demo: boolean) {
-  const stealers = state.players.filter(
-    (player) => player.stealTimer > 0 && !player.stealHit && !player.sentOff,
-  );
-  for (const stealer of stealers) {
-    if (state.ball.owner === null) {
-      const ballDistance = distance(
-        stealer.x,
-        stealer.y,
-        state.ball.x,
-        state.ball.y,
-      );
-      if (ballDistance >= 2.45 || state.ball.z >= 1.55) continue;
-      const ballSpeed = Math.hypot(state.ball.vx, state.ball.vy);
-      stealer.stealHit = true;
-      if (ballSpeed < 28) {
-        state.ball.owner = stealer.id;
-        state.ball.lastTouch = stealer.side;
-        state.ball.lastPlayerId = stealer.id;
-        state.ball.z = 0.12;
-        state.ball.vx = 0;
-        state.ball.vy = 0;
-        state.ball.vz = 0;
-        stealer.controlShield = controlShieldDuration(stealer);
-        setMessage(state, "ANTECIPAÇÃO PERFEITA", 0.58);
-      } else {
-        state.ball.vx = stealer.facingX * 15 + state.ball.vx * 0.18;
-        state.ball.vy = stealer.facingY * 15 + state.ball.vy * 0.18;
-        state.ball.vz = Math.max(1.2, state.ball.vz * 0.35);
-        state.ball.lastTouch = stealer.side;
-        state.ball.lastPlayerId = stealer.id;
-        state.ball.looseTimer = 0.12;
-        setMessage(state, "CORTE PRECISO", 0.48);
-      }
-      state.cameraShake = Math.max(state.cameraShake, 0.2);
-      continue;
-    }
-
+  for (const player of state.players) {
+    if (player.stealTimer <= 0 || player.stealHit || player.sentOff) continue;
+    const contact = tackleContact(state, player, false);
+    if (contact === "none") continue;
+    player.stealHit = true;
     const carrier = getPlayer(state, state.ball.owner);
-    if (!carrier || carrier.side === stealer.side || carrier.role === "GK")
-      continue;
-    const dx = carrier.x - stealer.x;
-    const dy = carrier.y - stealer.y;
-    const contactDistance = Math.hypot(dx, dy);
-    if (contactDistance >= 2.48) continue;
-
-    const nx = dx / Math.max(0.001, contactDistance);
-    const ny = dy / Math.max(0.001, contactDistance);
-    const alignment = stealer.facingX * nx + stealer.facingY * ny;
-    const closingSpeed = Math.max(
-      0,
-      (stealer.vx - carrier.vx) * nx + (stealer.vy - carrier.vy) * ny,
-    );
-    const carrierToStealerX = stealer.x - carrier.x;
-    const carrierToStealerY = stealer.y - carrier.y;
-    const fromBehind =
-      (carrierToStealerX * carrier.facingX +
-        carrierToStealerY * carrier.facingY) /
-        Math.max(0.001, contactDistance) <
-      -0.24;
-    const fromSide =
-      !fromBehind &&
-      Math.abs(
-        (carrierToStealerX * carrier.facingX +
-          carrierToStealerY * carrier.facingY) /
-          Math.max(0.001, contactDistance),
-      ) < 0.42;
-    const shieldPenalty = carrier.controlShield > 0 ? 0.22 : 0;
-    const duelAdvantage =
-      duelModifier(stealer.defending, ballControlRating(carrier)) +
-      (teamAbility(state, stealer.side) - teamAbility(state, carrier.side)) *
-        0.32;
-    const cleanChance = clamp(
-      0.62 +
-        Math.max(0, alignment) * 0.2 +
-        Math.min(12, closingSpeed) * 0.009 -
-        shieldPenalty -
-        (fromBehind ? 0.24 : fromSide ? 0.05 : 0) +
-        duelAdvantage,
-      0.24,
-      0.94,
-    );
-
-    stealer.stealHit = true;
-    if (demo || random(state) < cleanChance) {
-      state.ball.owner = stealer.id;
-      state.ball.lastTouch = stealer.side;
-      state.ball.lastPlayerId = stealer.id;
-      state.ball.z = 0.12;
-      state.ball.vx = 0;
-      state.ball.vy = 0;
-      state.ball.vz = 0;
-      stealer.controlShield = Math.min(
-        0.62,
-        controlShieldDuration(stealer) + 0.07,
-      );
-      carrier.controlShield = 0;
-      carrier.stumbleTimer = fromBehind ? 0.28 : 0.17;
-      carrier.vx *= 0.45;
-      carrier.vy *= 0.45;
-      state.cameraShake = Math.max(state.cameraShake, 0.28);
-      state.impactFlash = Math.max(state.impactFlash, 0.1);
-      setMessage(
-        state,
-        fromSide ? "DESARME NO TEMPO CERTO" : "BOTE LIMPO!",
-        0.62,
-      );
-      if (stealer.side === "home") state.selectedId = stealer.id;
-      else if (state.gameMode === "local2p") state.selectedAwayId = stealer.id;
-      continue;
-    }
-
-    const foulChance = fromBehind ? 0.46 : fromSide ? 0.16 : 0.055;
-    if (!demo && random(state) < foulChance) {
-      carrier.stumbleTimer = 0.34;
-      state.cameraShake = Math.max(state.cameraShake, 0.42);
-      commitFoul(state, stealer, carrier, demo);
+    if (contact === "foul" && carrier) {
+      player.stealTimer = 0;
+      carrier.stumbleTimer = 0.3;
+      commitFoul(state, player, carrier, demo);
       if (state.setPiece) return;
-    } else {
-      carrier.controlShield = Math.max(carrier.controlShield, 0.3);
-      stealer.stumbleTimer = 0.1;
-      setMessage(state, "ATACANTE PROTEGEU", 0.42);
+    } else if (contact === "ball") {
+      if (Math.hypot(state.ball.vx, state.ball.vy) < 32 || carrier) awardTacklePossession(state, player, carrier);
+      else {
+        Object.assign(state.ball, { vx: player.facingX * 15, vy: player.facingY * 15, vz: 1.5,
+          lastTouch: player.side, lastPlayerId: player.id, looseTimer: 0.12 });
+        setMessage(state, "INTERCEPTAÇÃO", 0.5);
+      }
     }
   }
 }
@@ -2080,7 +2004,9 @@ export function resolveKeeperSmothers(state: MatchState) {
   const contactDistance = distance(keeper.x, keeper.y, carrier.x, carrier.y);
   if (!insideKeeperBox || contactDistance >= 2.45) return;
 
-  keeper.tackleCooldown = 0.58;
+  keeper.tackleCooldown = 0.85;
+  keeper.keeperSave = "smother";
+  keeper.keeperDiveTimer = 0.5;
   const facingCarrier =
     keeper.facingX * (carrier.x - keeper.x) +
       keeper.facingY * (carrier.y - keeper.y) >
@@ -2132,91 +2058,20 @@ export function resolveKeeperSmothers(state: MatchState) {
 }
 
 export function resolveSlideTackles(state: MatchState, demo: boolean) {
-  const sliders = state.players.filter(
-    (player) => player.slideTimer > 0 && !player.slideHit && !player.sentOff,
-  );
-  for (const slider of sliders) {
-    if (
-      state.ball.owner === null &&
-      state.ball.z < 1.25 &&
-      distance(slider.x, slider.y, state.ball.x, state.ball.y) < 2.15
-    ) {
-      state.ball.x = slider.x + slider.facingX * 1.5;
-      state.ball.y = slider.y + slider.facingY * 1.5;
-      state.ball.vx = slider.facingX * 18;
-      state.ball.vy = slider.facingY * 18;
-      state.ball.z = 0.16;
-      state.ball.vz = 1.8;
-      state.ball.lastTouch = slider.side;
-      state.ball.lastPlayerId = slider.id;
-      state.ball.looseTimer = 0.16;
-      slider.slideHit = true;
-      state.cameraShake = Math.max(state.cameraShake, 0.34);
-      setMessage(state, "CARRINHO NA BOLA", 0.58);
-      continue;
-    }
-
-    const victim = state.players
-      .filter(
-        (player) =>
-          player.side !== slider.side &&
-          !player.sentOff &&
-          player.role !== "GK",
-      )
-      .sort(
-        (a, b) =>
-          distance(slider.x, slider.y, a.x, a.y) -
-          distance(slider.x, slider.y, b.x, b.y),
-      )[0];
-    if (!victim || distance(slider.x, slider.y, victim.x, victim.y) >= 2.05) {
-      continue;
-    }
-
-    slider.slideHit = true;
-    const victimHasBall = state.ball.owner === victim.id;
-    const victimToSliderX = slider.x - victim.x;
-    const victimToSliderY = slider.y - victim.y;
-    const contactDistance = Math.max(
-      0.001,
-      Math.hypot(victimToSliderX, victimToSliderY),
-    );
-    const fromBehind =
-      (victimToSliderX * victim.facingX + victimToSliderY * victim.facingY) /
-        contactDistance <
-      -0.28;
-    const cleanChance = clamp(
-      0.78 -
-        (fromBehind ? 0.34 : 0) -
-        (victim.controlShield > 0 ? 0.17 : 0) +
-        duelModifier(slider.defending, ballControlRating(victim)) +
-        (teamAbility(state, slider.side) - teamAbility(state, victim.side)) *
-          0.28,
-      0.25,
-      0.86,
-    );
-
-    if (victimHasBall && (demo || random(state) < cleanChance)) {
-      state.ball.owner = null;
-      state.ball.x = victim.x;
-      state.ball.y = victim.y;
-      state.ball.z = 0.16;
-      state.ball.vx = slider.facingX * 15 + victim.vx * 0.25;
-      state.ball.vy = slider.facingY * 15 + victim.vy * 0.25;
-      state.ball.vz = 2.2;
-      state.ball.spin = (random(state) - 0.5) * 4;
-      state.ball.lastTouch = slider.side;
-      state.ball.lastPlayerId = slider.id;
-      state.ball.looseTimer = 0.2;
-      victim.stumbleTimer = 0.42;
-      victim.controlShield = 0;
-      state.cameraShake = Math.max(state.cameraShake, 0.55);
-      state.impactFlash = Math.max(state.impactFlash, 0.24);
-      setMessage(state, "CARRINHO PERFEITO!", 0.75);
-    } else {
+  for (const player of state.players) {
+    if (player.slideTimer <= 0 || player.slideHit || player.sentOff) continue;
+    const contact = tackleContact(state, player, true);
+    const victim = getPlayer(state, state.ball.owner) ?? state.players.find(p =>
+      p.side !== player.side && !p.sentOff && distance(p.x, p.y, player.x, player.y) < 1.65);
+    if (contact === "none" && !victim) continue;
+    if (contact === "none" && (state.ball.owner !== null || !victim)) continue;
+    player.slideHit = true;
+    if (contact === "ball") {
+      awardTacklePossession(state, player, victim);
+      setMessage(state, "CARRINHO NA BOLA", 0.6);
+    } else if (victim) {
       victim.stumbleTimer = 0.5;
-      state.cameraShake = Math.max(state.cameraShake, 0.62);
-      state.impactFlash = Math.max(state.impactFlash, 0.32);
-      commitFoul(state, slider, victim, demo);
+      commitFoul(state, player, victim, demo);
       if (state.setPiece) return;
     }
   }
@@ -2456,6 +2311,20 @@ export function chooseKeeperDistributionTarget(
   return best;
 }
 
+export function keeperAngleTarget(state: MatchState, player: Player) {
+  const owner = getPlayer(state, state.ball.owner);
+  const goal = defendingGoalX(state, player.side), direction = goal === 0 ? 1 : -1;
+  const lead = owner && owner.side !== player.side ? clamp(0.12 + (player.overall - 60) * 0.004, 0.12, 0.28) : 0;
+  const x = (owner?.x ?? state.ball.x) + (owner?.vx ?? 0) * lead;
+  const y = clamp((owner?.y ?? state.ball.y) + (owner?.vy ?? 0) * lead, 0, 64);
+  const depth = Math.max(0.1, Math.abs(x - goal));
+  const targetX = goal + direction * clamp(2.6 + (30 - depth) * 0.15, 2.6, 6);
+  const top = Math.hypot(goal - x, GOAL_TOP - y), bottom = Math.hypot(goal - x, GOAL_BOTTOM - y);
+  const bisectorX = (goal - x) / Math.max(0.1, top) + (goal - x) / Math.max(0.1, bottom);
+  const bisectorY = (GOAL_TOP - y) / Math.max(0.1, top) + (GOAL_BOTTOM - y) / Math.max(0.1, bottom);
+  return { x: targetX, y: clamp(Math.abs(bisectorX) > 0.01 ? y + (targetX - x) * bisectorY / bisectorX : 32, 24.6, 39.4) };
+}
+
 export function updateKeeper(state: MatchState, player: Player, dt: number) {
   const ownLeft = defendingGoalX(state, player.side) === 0;
   const keeperAbility =
@@ -2465,21 +2334,16 @@ export function updateKeeper(state: MatchState, player: Player, dt: number) {
   const owner = getPlayer(state, state.ball.owner);
   const goalX = ownLeft ? 0 : FIELD_W;
   const baseX = ownLeft ? 4.8 : 95.2;
-  const keeperLineX = ownLeft ? 3.55 : 96.45;
+  const keeperLineX = clamp(player.x, ownLeft ? 2.2 : 93.5, ownLeft ? 6.5 : 97.8);
   const opponentOwner = owner && owner.side !== player.side ? owner : null;
-  const threatX = opponentOwner?.x ?? state.ball.x;
   const threatY = opponentOwner?.y ?? state.ball.y;
-  const threatDepth = Math.abs(threatX - goalX);
-  const angleFactor = clamp(0.64 - threatDepth * 0.018, 0.2, 0.59);
-  let targetX = baseX;
-  let targetY = clamp(
-    32 + (threatY - 32) * angleFactor,
-    GOAL_TOP + 0.75,
-    GOAL_BOTTOM - 0.75,
-  );
+  const angle = keeperAngleTarget(state, player);
+  let targetX = angle.x;
+  let targetY = angle.y;
   let keeperSpeed = 14.8;
 
   player.keeperCommitTimer = Math.max(0, player.keeperCommitTimer - dt);
+  if (player.keeperDiveTimer <= 0 && !player.keeperShotPending) player.keeperSave = "set";
   player.keeperReactionTimer = Math.max(0, player.keeperReactionTimer - dt);
 
   if (state.ball.owner === player.id) {
@@ -2543,8 +2407,9 @@ export function updateKeeper(state: MatchState, player: Player, dt: number) {
   if (shotThreat && goalPrediction) {
     targetX = keeperLineX;
     if (player.keeperReactionTimer <= 0) {
+      const interception = predictBallAtX(state.ball, keeperLineX) ?? goalPrediction;
       const predictedTargetY = clamp(
-        goalPrediction.y,
+        interception.y,
         GOAL_TOP + 0.35,
         GOAL_BOTTOM - 0.35,
       );
@@ -2564,13 +2429,17 @@ export function updateKeeper(state: MatchState, player: Player, dt: number) {
             ? 15.5
             : 13.5;
       const reachY = Math.abs(targetY - player.y);
-      const highBall = goalPrediction.z > 1.45;
-      if (goalPrediction.time < 0.82 && (reachY > 1.15 || highBall)) {
-        player.keeperDiveTimer = Math.max(player.keeperDiveTimer, 0.36);
+      const highBall = interception.z > 2.4;
+      if (interception.time < 0.7 && player.keeperCommitTimer <= 0.16 && player.keeperShotPending) {
+        player.keeperSave = highBall && reachY < 3 ? "tip" : "dive";
+        player.keeperDiveTimer = 0.56;
         player.keeperDiveDirection = Math.sign(targetY - player.y) || 1;
+        player.keeperShotPending = false;
+        player.keeperCommitTimer = 0.56;
       }
     } else {
-      keeperSpeed = 15.5;
+      // Before recognition the keeper stays set; no trajectory tracking through the reaction delay.
+      targetX = player.x; targetY = player.y; keeperSpeed = 0;
     }
   } else if (state.ball.owner === null && state.ball.z > 0.3) {
     const landing = predictBallLanding(state.ball);
@@ -2598,6 +2467,7 @@ export function updateKeeper(state: MatchState, player: Player, dt: number) {
       targetY = clamp(landing.y, 8, 56);
       keeperSpeed = 21;
       if (keeperDistance < 4.2) {
+        player.keeperSave = "tip";
         player.keeperDiveTimer = Math.max(player.keeperDiveTimer, 0.24);
         player.keeperDiveDirection = Math.sign(targetY - player.y) || 1;
       }
@@ -2635,7 +2505,8 @@ export function updateKeeper(state: MatchState, player: Player, dt: number) {
       targetY = clamp(32 + (owner.y - 32) * 0.68, 18, 46);
       keeperSpeed = 19.2;
       if (distance(player.x, player.y, owner.x, owner.y) < 5.4) {
-        player.keeperDiveTimer = Math.max(player.keeperDiveTimer, 0.2);
+        player.keeperSave = "smother";
+        player.keeperDiveTimer = Math.max(player.keeperDiveTimer, 0.42);
         player.keeperDiveDirection = Math.sign(owner.y - player.y) || 1;
       }
     }
@@ -2879,7 +2750,18 @@ export function aiTarget(
     return;
   }
 
+  player.defensiveState = "shape";
+  const secondPress = player.id === state.pressure.secondaryId && owner && !teamHasBall;
+  if (secondPress) {
+    player.defensiveState = "cover";
+    const flank = Math.sign(owner.y - (chaser?.y ?? 32)) || (player.id % 2 ? 1 : -1);
+    const progress = clamp(attackProgressAt(state, player.side, owner.x - attackDirection * 1.1), bounds.min, bounds.max);
+    movePlayer(player, xFromAttackProgress(state, player.side, progress), clamp(owner.y + flank * 1.8, 3, 61),
+      15.2 * difficultyBoost * abilityBoost * tactic.pressure, dt);
+    return;
+  }
   if (player.id === chaser?.id && (!teamHasBall || !owner)) {
+    player.defensiveState = "chase";
     const lead = owner
       ? 0.22
       : clamp(
@@ -3344,16 +3226,17 @@ export function updateBall(state: MatchState, dt: number, demo: boolean) {
         state.ball.owner = null;
         state.ball.lastTouch = pickup.side;
         state.ball.lastPlayerId = pickup.id;
-        state.ball.vx = attackDirectionFor(state, pickup.side) * 24;
-        state.ball.vy = wideDirection * (26 + random(state) * 9);
+        const tipping = pickup.keeperSave === "tip";
+        state.ball.vx = attackDirectionFor(state, pickup.side) * (tipping ? -6 : 24);
+        state.ball.vy = wideDirection * (tipping ? 5 : 26 + random(state) * 9);
         state.ball.z = Math.max(0.7, state.ball.z * 0.65);
-        state.ball.vz = 3.8;
+        state.ball.vz = pickup.keeperSave === "tip" ? 10.8 : 3.8;
         state.ball.spin = (random(state) - 0.5) * 5;
         state.ball.looseTimer = 0.08;
         pickup.keeperDiveTimer = 0.38;
         pickup.keeperDiveDirection =
           Math.sign(state.ball.vy) || pickup.keeperDiveDirection || 1;
-        setMessage(state, "ESPALMA O GOLEIRO!", 0.8);
+        setMessage(state, pickup.keeperSave === "tip" ? "POR CIMA DO TRAVESSÃO!" : "ESPALMA O GOLEIRO!", 0.8);
         return;
       }
       state.ball.owner = pickup.id;
@@ -3387,70 +3270,69 @@ export function updateBall(state: MatchState, dt: number, demo: boolean) {
 
 export function updateSteals(state: MatchState, dt: number, demo: boolean) {
   const owner = getPlayer(state, state.ball.owner);
-  if (!owner) return;
-  if (owner.controlShield > 0) return;
-  state.players.forEach((player) => {
-    const humanControlled =
-      !demo &&
-      ((player.side === "home" && player.id === state.selectedId) ||
-        (state.gameMode === "local2p" &&
-          player.side === "away" &&
-          player.id === state.selectedAwayId));
-    if (
-      !humanControlled &&
-      player.side !== owner.side &&
-      player.role !== "GK" &&
-      !player.sentOff &&
-      player.stealTimer <= 0 &&
-      player.slideTimer <= 0 &&
-      player.stumbleTimer <= 0 &&
-      distance(player.x, player.y, owner.x, owner.y) < 1.35 &&
-      player.tackleCooldown <= 0
-    ) {
-      const base =
-        (player.side === "away" && state.difficulty === "hard" ? 0.7 : 0.42) *
-        playerAttributeFactor(player.defending) *
-        teamAbility(state, player.side);
-      if (random(state) < dt * base) {
-        player.tackleCooldown = 0.9;
-        const ownerToDefenderX = player.x - owner.x;
-        const ownerToDefenderY = player.y - owner.y;
-        const ownerDistance = Math.max(
-          0.001,
-          Math.hypot(ownerToDefenderX, ownerToDefenderY),
-        );
-        const fromBehind =
-          (ownerToDefenderX * owner.facingX +
-            ownerToDefenderY * owner.facingY) /
-            ownerDistance <
-          -0.3;
-        const cleanChance = clamp(
-          (player.side === "away" && state.difficulty === "hard" ? 0.9 : 0.82) -
-            (fromBehind ? 0.27 : 0) +
-            duelModifier(player.defending, ballControlRating(owner)) +
-            (teamAbility(state, player.side) - teamAbility(state, owner.side)) *
-              0.28,
-          0.46,
-          0.92,
-        );
-        const cleanTackle = demo || random(state) < cleanChance;
-        if (cleanTackle) {
-          state.ball.owner = player.id;
-          state.ball.lastTouch = player.side;
-          state.ball.lastPlayerId = player.id;
-          state.ball.z = 0.12;
-          state.ball.vz = 0;
-          player.controlShield = controlShieldDuration(player);
-          if (!demo && player.side === "home") state.selectedId = player.id;
-          if (!demo && player.side === "away" && state.gameMode === "local2p") {
-            state.selectedAwayId = player.id;
-          }
-        } else {
-          commitFoul(state, player, owner, demo);
-        }
-      }
+  if (state.setPiece || state.frozen > 0) return;
+  for (const player of state.players) {
+    const human = !demo && ((player.side === "home" && player.id === state.selectedId) ||
+      (state.gameMode === "local2p" && player.side === "away" && player.id === state.selectedAwayId));
+    if (human || player.role === "GK" || player.sentOff || owner?.side === player.side) { player.tackleReadiness = 0; continue; }
+    if (player.tackleCooldown > 0 || player.stumbleTimer > 0) {
+      if (player.stealTimer <= 0 && player.slideTimer <= 0) player.defensiveState = "recover";
+      continue;
     }
-  });
+    const ballDistance = distance(player.x, player.y, state.ball.x, state.ball.y);
+    if (ballDistance > 4.1 || state.ball.z > 1.3) { player.tackleReadiness = 0; continue; }
+    player.defensiveState = "chase";
+    player.tackleReadiness += dt;
+    const reaction = clamp(0.2 - (player.defending - 60) * 0.004, 0.065, 0.24) *
+      (state.difficulty === "easy" ? 1.35 : state.difficulty === "hard" ? 0.8 : 1);
+    if (player.tackleReadiness < reaction) continue;
+    const behind = owner && ((player.x - owner.x) * owner.facingX + (player.y - owner.y) * owner.facingY) < -0.8;
+    const urgent = owner && attackProgressAt(state, player.side, owner.x) < 30;
+    const sliding = !behind && !!urgent && ballDistance > 2.9 && player.defending >= 68 && Math.hypot(owner.vx, owner.vy) > 9;
+    beginTackle(state, player, sliding);
+  }
+}
+
+export function updateDefensivePressure(state: MatchState, dt: number, demo: boolean) {
+  const owner = getPlayer(state, state.ball.owner), t = state.pressure;
+  const human = owner && !demo && (owner.id === state.selectedId ||
+    (state.gameMode === "local2p" && owner.id === state.selectedAwayId));
+  if (!owner || !human || owner.role === "GK" || t.ownerId !== owner.id) {
+    Object.assign(t, { ownerId: owner?.id ?? null, held: 0, window: 0, path: 0, stagnant: 0, secondaryId: null,
+      anchorX: owner?.x ?? 50, anchorY: owner?.y ?? 32, lastX: owner?.x ?? 50, lastY: owner?.y ?? 32 });
+    return;
+  }
+  t.held += dt; t.window += dt;
+  t.path += distance(owner.x, owner.y, t.lastX, t.lastY);
+  t.lastX = owner.x; t.lastY = owner.y;
+  if (t.window >= 1.2) {
+    const net = distance(owner.x, owner.y, t.anchorX, t.anchorY);
+    const circling = t.path > 4 && net / t.path < 0.48;
+    t.stagnant = net < 2.5 || circling ? t.stagnant + t.window : Math.max(0, t.stagnant - t.window * 2);
+    t.window = 0; t.path = 0; t.anchorX = owner.x; t.anchorY = owner.y;
+  }
+  t.secondaryId = null;
+  if (t.stagnant < 1.15 && t.held < 5) return;
+  const side: Side = owner.side === "home" ? "away" : "home", primary = pressingPlayer(state, side);
+  const tactic = TACTICS[side === "home" ? state.homeTactic : state.awayTactic];
+  const progress = attackProgressAt(state, side, owner.x);
+  const support = state.players.filter(p => p.side === side && p.role !== "GK" && !p.sentOff && p.id !== primary?.id &&
+    !(side === "home" && p.id === state.selectedId) && !(side === "away" && state.gameMode === "local2p" && p.id === state.selectedAwayId) &&
+    progress >= roleProgressBounds(p.role, tactic).min - 4 && progress <= roleProgressBounds(p.role, tactic).max + 4)
+    .sort((a,b) => distance(a.x,a.y,owner.x,owner.y) - distance(b.x,b.y,owner.x,owner.y))[0];
+  t.secondaryId = support?.id ?? null;
+}
+
+export function finishMatch(state: MatchState) {
+  if (state.finished) return;
+  state.finished = true; state.paused = true; state.remaining = 0;
+  state.winner = state.homeScore > state.awayScore ? "home" : state.awayScore > state.homeScore ? "away" : null;
+  if (state.cupRound !== null && !state.winner) {
+    state.shootout = resolveShootout(state, () => random(state));
+    state.winner = state.shootout.home > state.shootout.away ? "home" : "away";
+  }
+  setMessage(state, "FIM DE JOGO", 99);
+  beginTitleCelebration(state);
 }
 
 export function updateParticles(state: MatchState, dt: number) {
@@ -3591,9 +3473,7 @@ export function updateMatch(
       if (state.half === 1) {
         beginSecondHalf(state);
       } else {
-        state.finished = true;
-        state.paused = true;
-        setMessage(state, "FIM DE JOGO", 99);
+        finishMatch(state);
       }
       return;
     }
@@ -3611,6 +3491,7 @@ export function updateMatch(
     state.awayShotCharge = clamp(state.awayShotCharge + dt * 0.86, 0, 1);
   }
 
+  updateDefensivePressure(state, dt, demo);
   const homeChaser = pressingPlayer(state, "home");
   const awayChaser = pressingPlayer(state, "away");
   state.players.forEach((player) => {
@@ -3657,6 +3538,7 @@ export function updateMatch(
   if (state.setPiece) return;
   updateBall(state, dt, demo);
   updateSteals(state, dt, demo);
+  updatePitchWear(state.pitchWear, state.players, dt);
 
   state.players.forEach((player) => {
     if (player.sentOff) return;

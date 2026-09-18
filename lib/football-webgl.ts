@@ -1,4 +1,6 @@
 import * as THREE from "three";
+import { grassDetailMaps, createWearOverlay, createPostProcessing, createTitleStage } from "./football-effects";
+import { celebrationPose, celebrationShot } from "./football-presentation";
 import {
   clamp,
   type MatchState,
@@ -199,7 +201,7 @@ export function createStadiumRenderer(
   const hemi = new THREE.HemisphereLight("#dce9ff", "#31482c", 2.25);
   scene.add(hemi);
   const key = new THREE.DirectionalLight("#fff2d8", 3.1);
-  key.position.set(-24, 75, -35);
+  key.position.set(-10, 45, -12);
   key.target.position.set(50, 0, 32);
   key.castShadow = true;
   key.shadow.mapSize.set(2048, 2048);
@@ -215,8 +217,15 @@ export function createStadiumRenderer(
   key.shadow.normalBias = 0.05;
   scene.add(key, key.target);
   const fill = new THREE.DirectionalLight("#adcfff", 1.15);
-  fill.position.set(120, 50, 90);
-  scene.add(fill);
+  fill.position.set(110, 45, 78);
+  fill.target.position.set(50, 0, 32);
+  fill.castShadow = true;
+  fill.shadow.mapSize.set(2048, 2048);
+  Object.assign(fill.shadow.camera, { left: -90, right: 90, top: 90, bottom: -90, near: 1, far: 220 });
+  fill.shadow.bias = -0.0003;
+  fill.shadow.normalBias = 0.06;
+  scene.add(fill, fill.target);
+  const post = createPostProcessing(renderer, scene, camera);
   const standard = (color: string) =>
     new THREE.MeshStandardMaterial({ color, roughness: 0.86, metalness: 0 });
   function box(
@@ -239,10 +248,15 @@ export function createStadiumRenderer(
     parent.add(mesh);
     return mesh;
   }
+  const detailMaps = grassDetailMaps();
   const pitch = new THREE.Mesh(
     new THREE.PlaneGeometry(100, 64),
-    new THREE.MeshStandardMaterial({ map: pitchTexture(), roughness: 1 }),
+    new THREE.MeshStandardMaterial({ map: pitchTexture(), roughness: 0.94,
+      normalMap: detailMaps.normal, normalScale: new THREE.Vector2(0.58, 0.58),
+      aoMap: detailMaps.ao, aoMapIntensity: 0.85 }),
   );
+  const updateWear = createWearOverlay(scene);
+  const titleStage = createTitleStage(scene);
   pitch.rotation.x = -Math.PI / 2;
   pitch.position.set(50, 0.04, 32);
   pitch.receiveShadow = true;
@@ -362,8 +376,8 @@ export function createStadiumRenderer(
     }
   for (const x of [-10, 110])
     for (const z of [-12, 78]) {
-      box(0.6, 27, 0.6, x, 13.5, z, "#778792");
-      const lamps = box(6, 1.5, 0.5, x, 27, z, "#fff");
+      box(0.6, 45, 0.6, x, 22.5, z, "#778792");
+      const lamps = box(6, 1.5, 0.5, x, 45, z, "#fff");
       lamps.material.emissive.set("#e8f5ff");
       lamps.material.emissiveIntensity = 3;
     }
@@ -478,6 +492,9 @@ export function createStadiumRenderer(
       arm.add(forearm);
       if (p.role === "GK") box(0.2, 0.22, 0.14, 0, -0.64, 0.14, "#eceddb", arm);
     }
+    body.traverse(object => {
+      if (object instanceof THREE.Mesh) { object.castShadow = true; object.receiveShadow = true; }
+    });
     root.scale.setScalar(1.28);
     const ring = new THREE.Mesh(
       new THREE.RingGeometry(0.85, 0.94, 40),
@@ -529,6 +546,7 @@ export function createStadiumRenderer(
     resize(width, height, dpr) {
       renderer.setPixelRatio(Math.min(dpr, 2));
       renderer.setSize(width, height, false);
+      post.resize(width, height, dpr);
       const aspect = width / height;
       const halfWidth = Math.max(61, 42 * aspect),
         halfHeight = halfWidth / aspect;
@@ -553,15 +571,28 @@ export function createStadiumRenderer(
         matchIdentity = state;
         lastTime = state.elapsed;
       }
-      const dt = clamp(state.elapsed - lastTime, 0, 0.1);
-      lastTime = state.elapsed;
+      const visualTime = state.elapsed + (state.celebration?.time ?? 0);
+      const dt = clamp(visualTime - lastTime, 0, 0.1);
+      lastTime = visualTime;
+      updateWear(state.pitchWear);
+      titleStage.update(state);
+      const ceremony = state.celebration;
+      if (ceremony) {
+        const shot = celebrationShot(ceremony.time);
+        camera.position.set(shot.x, shot.y, shot.z); camera.zoom = shot.zoom;
+        camera.lookAt(50, 3, 32);
+      } else {
+        camera.position.set(50, 96, 103); camera.zoom = 1; camera.lookAt(50, 0, 30);
+      }
+      camera.updateProjectionMatrix(); camera.updateMatrixWorld();
       renderer.shadowMap.enabled = quality !== "performance";
       crowd.visible = quality !== "performance";
       key.intensity = 3.05 + Math.sin(state.elapsed * 0.018) * 0.12;
       for (const p of state.players) {
         const a = athletes.get(p.id)!;
-        a.root.visible = !p.sentOff;
-        a.root.position.set(p.x, 0, p.y);
+        const pose = ceremony ? celebrationPose(ceremony, p) : null;
+        a.root.visible = ceremony ? !!pose : !p.sentOff;
+        a.root.position.set(pose?.x ?? p.x, pose?.height ?? 0, pose?.y ?? p.y);
         const target = Math.atan2(p.facingX, p.facingY),
           delta = Math.atan2(
             Math.sin(target - a.body.rotation.y),
@@ -579,8 +610,8 @@ export function createStadiumRenderer(
         a.legs[1].rotation.x = -gait - kick;
         a.knees[0].rotation.x = Math.max(0, -gait) * 0.8;
         a.knees[1].rotation.x = Math.max(0, gait) * 0.8;
-        a.arms[0].rotation.x = -gait * 0.8;
-        a.arms[1].rotation.x = gait * 0.8;
+        a.arms[0].rotation.set(-gait * 0.8, 0, 0);
+        a.arms[1].rotation.set(gait * 0.8, 0, 0);
         a.body.position.y =
           Math.abs(Math.sin(a.phase)) * Math.min(0.07, speed * 0.005);
         a.body.rotation.x = clamp(speed * 0.005, 0, 0.12);
@@ -591,24 +622,53 @@ export function createStadiumRenderer(
           a.legs[1].rotation.x = -0.9;
         }
         if (p.keeperDiveTimer > 0) {
-          a.body.rotation.z = p.keeperDiveDirection * 1.1;
-          a.body.position.y = -0.3;
-          a.arms[0].rotation.x = -2;
-          a.arms[1].rotation.x = -2;
+          const extension = Math.sin(clamp(p.keeperDiveTimer / 0.56, 0, 1) * Math.PI);
+          if (p.keeperSave === "tip") {
+            a.body.position.y = extension * 0.7;
+            a.arms[0].rotation.x = -2.9; a.arms[1].rotation.x = -2.8;
+          } else if (p.keeperSave === "smother") {
+            a.body.rotation.x = 1.15; a.body.position.y = -0.75;
+            a.arms[0].rotation.x = -1.7; a.arms[1].rotation.x = -1.7;
+          } else {
+            a.body.rotation.z = p.keeperDiveDirection * (0.5 + extension * 0.8);
+            a.body.position.y = extension * 0.28 - 0.42;
+            a.arms[0].rotation.x = -2.2; a.arms[1].rotation.x = -2.2;
+          }
+        }
+        if (p.stealTimer > 0) {
+          a.legs[1].rotation.x = -0.85; a.body.rotation.x = 0.28;
+          a.arms[0].rotation.z = 0.5; a.arms[1].rotation.z = -0.5;
         }
         if (p.stumbleTimer > 0) a.body.rotation.z = 0.25;
         const selected =
           p.id === state.selectedId ||
           (state.gameMode === "local2p" && p.id === state.selectedAwayId);
-        a.ring.visible = selected;
-        a.label.visible = selected;
+        a.ring.visible = selected && !ceremony;
+        a.label.visible = selected && !ceremony;
+        if (pose) {
+          a.body.rotation.set(0, 0, 0); a.body.position.y = 0;
+          const march = Math.sin((ceremony!.time + p.id) * 9) * (pose.gathered ? 0 : .65);
+          a.legs[0].rotation.x = march; a.legs[1].rotation.x = -march;
+          a.knees[0].rotation.x = a.knees[1].rotation.x = 0;
+          a.arms[0].rotation.x = pose.captain ? -.9 - pose.lift * 1.9 : -pose.lift * 2.6;
+          a.arms[1].rotation.x = a.arms[0].rotation.x;
+          a.arms[0].rotation.z = pose.captain ? -.3 : .4;
+          a.arms[1].rotation.z = -a.arms[0].rotation.z;
+          if (pose.captain) {
+            titleStage.trophy.position.set(pose.x, pose.height + 2.5 + pose.lift * 1.3, pose.y + .55);
+            titleStage.trophy.rotation.set(0, Math.sin(ceremony!.time)*.05, 0);
+          }
+        }
       }
       ball.position.set(state.ball.x, state.ball.z + 0.52, state.ball.y);
       ball.rotation.x += state.ball.vy * dt;
       ball.rotation.z -= state.ball.vx * dt;
-      renderer.render(scene, camera);
+      ball.visible = !ceremony;
+      post.render(state, quality, dt);
     },
     dispose() {
+      post.dispose();
+      key.shadow.dispose(); fill.shadow.dispose();
       disposeObject(scene);
       renderer.dispose();
     },

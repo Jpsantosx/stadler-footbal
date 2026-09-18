@@ -16,6 +16,20 @@ Simulador independente de futebol 8×8 para navegador, em React, TypeScript e Th
 - **Base e diretoria:** talentos fictícios podem ser promovidos. Metas de pontos, folha salarial e promoção de jovens influenciam a confiança da diretoria; resultados ruins podem causar demissão.
 - **Interface:** menu Matchday, escudos PNG locais sem recortes decorativos, tabela com cabeçalho fixo, central de gestão e HUD discreto. Os atalhos de teclado ficam no menu de pausa.
 
+## Atualização de defesa, título e celulares
+
+- Botes usam alcance físico da bola, animação de preparação e recuperação. O contato limpo transfere posse; atingir o portador por trás gera falta. Bots próximos não dependem mais de uma distância impossível após a colisão dos corpos.
+- Um segundo marcador fecha a saída quando o humano retém a posse, fica parado ou circula sem progredir. A pressão respeita funções e reinicia quando há passe ou troca de posse.
+- Goleiros antecipam o ângulo do atacante, reconhecem o chute com atraso por habilidade e escolhem mergulho, defesa alta ou abafada. Permanecem sujeitos à velocidade e ao alcance físico.
+- Finais da Copa disparam uma cerimônia de 17 segundos: reunião no pódio, capitão levantando a taça, confetes nas cores do campeão, flashes e fogos. Relógio, jogadores e placar ficam congelados. É possível pular ou rever; a prévia no menu da Copa não registra resultados.
+- Empates na Copa usam cobranças simuladas com precisão dos cobradores, fadiga e OVR do goleiro. O resultado dos pênaltis aparece separado do placar; posse de bola não desempata.
+- Gramado com diffuse 2048², mapas procedurais de normais e oclusão, máscara acumulada de tráfego e marcas de carrinho. Dois refletores projetam sombras dos membros articulados. Bloom nas luzes/taça, desfoque de movimento localizado no modo Ultra e profundidade de campo somente na cerimônia.
+- Celulares: menus roláveis, tabelas com rolagem interna, áreas seguras para recortes da tela e botões de ao menos 44 px. Na vertical, o campo ocupa uma área separada dos controles; na horizontal, o HUD é compacto. Analógico com zona morta, corrida na borda e chute ao soltar; cancelamento de toque não dispara chute. Pausa, rotação e perda de foco limpam os comandos.
+
+No celular, use **PASSE**, **BOTE**, **CARRINHO**, **TROCAR** e mantenha **CHUTE** pressionado para carregar. A tela cheia depende do suporte do navegador. Duplas continua sendo local: toque para J1 e teclado para J2; não há partida online sincronizada.
+
+Os efeitos 3D usam [EffectComposer](https://threejs.org/docs/pages/EffectComposer.html), [UnrealBloomPass](https://threejs.org/docs/pages/UnrealBloomPass.html) e [BokehPass](https://threejs.org/docs/pages/BokehPass.html). O desfoque de movimento é uma aproximação localizada em tela, não um sistema de vetores temporais por pixel. Canvas 2D oferece apresentação alternativa da cerimônia e desgaste; normal maps, bloom e DOF reais exigem WebGL.
+
 ## Partida e controles
 
 Oito atletas por lado e dois tempos de 55 segundos, totalizando **1 minuto e 50 segundos de bola em jogo**, além das interrupções. Formações `2-3-2`, `3-2-2` e `2-2-3`, com posturas equilibrada, ofensiva, defensiva e contra-ataque. Saída central, troca de lados, impedimento, lateral, escanteio, tiro de meta, faltas, pênaltis e cartões.
@@ -58,6 +72,10 @@ npm run start:vercel
 | `data/football-catalog.json`     | Clubes, atletas, função, idade, massa, OVR e origem dos dados              |
 | `lib/football-engine.ts`         | Partida, atributos, tática, decisões, movimento, bola, colisões e regras   |
 | `lib/football-webgl.ts`          | Estádio, materiais, texturas, luzes, câmera e animação articulada          |
+| `lib/football-effects.ts`        | Mapas de relevo/AO, desgaste, pós-processamento e pódio 3D                 |
+| `lib/football-presentation.ts`   | Pênaltis simulados, relógio da cerimônia, poses e partículas               |
+| `lib/football-pitch.ts`          | Acúmulo de desgaste e marcas de carrinho                                  |
+| `lib/football-input.ts`          | Analógico de toque e limpeza de comandos                                 |
 | `lib/football-renderer.ts`       | Alternativa em Canvas 2D                                                   |
 | `lib/football-competition.ts`    | Calendário, classificação, confrontos e resultados simulados               |
 | `lib/football-career.ts`         | Economia, contratos, transferências, escalação, evolução, base e diretoria |

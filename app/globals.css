@@ -4003,3 +4003,121 @@ input:focus-visible {
     max-height: 48dvh;
   }
 }
+
+/* Cup broadcast: the match HUD is absent while the independent ceremony runs. */
+.title-ceremony { position:absolute; inset:0; z-index:32; pointer-events:none; border-block:clamp(24px,6vh,58px) solid #071018; }
+.ceremony-title { position:absolute; left:6%; top:5%; text-shadow:0 2px 18px #000; }
+.ceremony-title > span { color:#ecda9a; font-size:11px; font-weight:750; letter-spacing:.17em; }
+.ceremony-title h2 { font-size:clamp(26px,4vw,58px); letter-spacing:-.035em; line-height:1.05; margin:8px 0; }
+.ceremony-title p { color:#c5d0d6; font-size:13px; }
+.ceremony-skip { position:absolute; bottom:14px; right:max(24px,env(safe-area-inset-right)); display:flex; align-items:center; gap:12px; padding:12px 16px; border:1px solid #647782; border-radius:10px; background:#101d2bd9; color:#fff; font-size:12px; pointer-events:auto; min-height:44px; }
+.ceremony-replay { display:flex; align-items:center; justify-content:center; gap:8px; padding:10px 16px; margin:0 auto 14px; color:#f3dda2; border:1px solid #74684c; border-radius:8px; min-height:44px; }
+.shootout-result { text-align:center; color:#c8d6dc; font-size:13px; padding:0 0 16px; }
+.football-shell[data-screen="celebrating"] .game-brand { display:none; }
+.mobile-play-hint, .mobile-menu-note, .touch-orientation-hint { display:none; }
+.football-shell[data-screen="playing"], .football-shell[data-screen="celebrating"] { overscroll-behavior:none; }
+.touch-controls { -webkit-touch-callout:none; user-select:none; }
+.game-dialog { max-height:calc(100dvh - 24px - env(safe-area-inset-top) - env(safe-area-inset-bottom)); overflow-y:auto; overscroll-behavior:contain; }
+button:focus-visible { outline:2px solid #c5f58b; outline-offset:3px; }
+
+@media (pointer:coarse), (max-width:960px) {
+  .game-stage { min-height:100dvh; }
+  .football-shell[data-screen="playing"] .game-brand { display:none; }
+  .game-brand { top:max(12px,env(safe-area-inset-top)); left:max(16px,env(safe-area-inset-left)); }
+  .icon-button { width:44px; height:44px; }
+  .match-tools { top:max(8px,env(safe-area-inset-top)); right:max(10px,env(safe-area-inset-right)); gap:4px; }
+  .fps-pill, .controls-corner-hint, .player-hud { display:none; }
+  .scoreboard { top:max(8px,env(safe-area-inset-top)); grid-template-columns:48px 26px 55px 26px 48px; min-height:38px; }
+  .score-team { justify-content:center; padding:3px; }
+  .score-team .team-badge, .score-team .club-crest, .match-clock span { display:none; }
+  .scoreboard > strong { font-size:18px; }
+  .match-clock b { font-size:13px; }
+  .score-team > span { font-size:11px; }
+  .touch-controls { position:absolute; z-index:25; display:flex; align-items:flex-end; justify-content:space-between; height:148px; left:max(14px,env(safe-area-inset-left)); right:max(14px,env(safe-area-inset-right)); bottom:max(16px,env(safe-area-inset-bottom)); pointer-events:none; }
+  .joystick { display:grid; position:relative; place-items:center; width:104px; height:104px; flex-shrink:0; transform:none; border:1px solid #a5bdbb70; border-radius:50%; background:#102531aa; box-shadow:inset 0 0 0 12px #97b8b30c; pointer-events:auto; touch-action:none; }
+  .joystick i { width:42px; height:42px; border-radius:50%; background:#cbe4d65e; border:1px solid #e3ffed9c; pointer-events:none; }
+  .joystick[data-sprinting="true"] { border-color:#c5f58b; box-shadow:inset 0 0 0 6px #c5f58b22; }
+  .touch-sprint { display:none; }
+  .touch-actions { position:relative; width:188px; height:148px; transform:none; pointer-events:none; }
+  .touch-button { position:absolute; display:flex; align-items:center; justify-content:center; flex-direction:column; pointer-events:auto; touch-action:none; -webkit-tap-highlight-color:transparent; width:54px; height:54px; border-radius:50%; border:1px solid #c4ded477; background:#152935df; color:#fff; font-size:10px; font-weight:750; box-shadow:0 3px 12px #00151d66; }
+  .touch-button small { display:block; font-size:8px; font-weight:500; margin-top:3px; color:inherit; opacity:.8; }
+  .touch-button--shoot { width:66px; height:66px; bottom:0; right:0; top:auto; color:#12231a; background:#c5f58b; border-color:#e6ffc1; font-size:12px; }
+  .touch-button--pass { width:58px; height:58px; bottom:1px; right:75px; top:auto; background:#d7e8e7; color:#10202c; font-size:11px; }
+  .touch-button--tackle { top:7px; right:0; bottom:auto; width:54px; height:54px; }
+  .touch-button--slide { top:13px; right:65px; bottom:auto; width:54px; height:54px; background:#3c2934e8; border-color:#d5869777; font-size:8px; }
+  .touch-button--switch { top:61px; right:135px; bottom:auto; width:48px; height:48px; font-size:8px; background:#173a46e8; color:#d8f4ff; }
+  .touch-button:active { transform:scale(.95); border-color:#fff; }
+  .shot-meter { bottom:25px; max-width:160px; }
+  .mobile-menu-note { display:block; padding:9px 12px; color:#b9d7c5; background:#20392d; border:1px solid #365442; border-radius:8px; font-size:12px; margin-bottom:16px; }
+  .menu-panel { min-width:0; }
+  .menu-actions button, .team-picker-card, .game-radio-option span { min-height:44px; }
+  .team-choice__arrow { min-width:40px; min-height:48px; }
+  .finish-screen { padding:max(14px,env(safe-area-inset-top)) 14px max(14px,env(safe-area-inset-bottom)); overflow-y:auto; }
+  .finish-card { margin:auto; max-height:calc(100dvh - 28px); overflow-y:auto; }
+  .ceremony-title { top:5%; }
+  .ceremony-title p { font-size:11px; }
+  .set-piece-hud { top:58px; max-width:calc(100% - 30px); min-width:0; }
+  .set-piece-hud strong, .set-piece-hud span { font-size:10px; white-space:normal; }
+}
+@media (max-width:600px) and (orientation:portrait) {
+  .football-shell[data-screen="playing"] .game-canvas { top:68px; bottom:auto; height:calc(100% - 280px); }
+  .scoreboard { left:12px; transform:none; top:max(14px,env(safe-area-inset-top)); }
+  .match-tools { right:8px; top:max(10px,env(safe-area-inset-top)); gap:0; }
+  .match-tools .fullscreen-button { display:none; }
+  .mobile-play-hint { display:block; position:absolute; left:15px; right:15px; bottom:192px; color:#bdd0d5; text-align:center; font-size:10px; z-index:24; }
+  .touch-controls { bottom:max(30px,env(safe-area-inset-bottom)); left:12px; right:12px; }
+  .touch-orientation-hint { display:block; position:absolute; bottom:-22px; width:100%; color:#7e959f; font-size:10px; text-align:center; }
+  .shot-meter { left:22px; bottom:150px; transform:none; width:105px; }
+  .shot-meter > span { font-size:8px; }
+  .match-message { top:38%; font-size:clamp(15px,5vw,24px); max-width:90%; }
+  .menu-panel { padding:76px 14px 20px; }
+  .menu-panel h1 { font-size:42px; }
+  .team-choice { grid-template-columns:40px 54px minmax(0,1fr) 40px; min-height:88px; }
+  .team-choice strong { font-size:16px; }
+  .team-choice .club-crest { width:48px; height:56px; }
+  .team-choice > .team-choice__details { padding-right:44px; padding-left:8px; }
+  .team-choice__overall { font-size:11px; padding:5px; }
+  .competition-tabs { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .competition-tabs button { min-height:52px; flex-direction:row; align-items:center; gap:10px; }
+  .competition-tabs b { font-size:12px; }
+  .menu-actions { position:sticky; bottom:0; padding:12px 0 max(12px,env(safe-area-inset-bottom)); background:#0d1b25; z-index:6; }
+  .team-picker-grid { grid-template-columns:repeat(2,minmax(0,1fr)); max-height:50dvh; }
+  .team-picker-search input, .office-toolbar input, .game-dialog input, .game-dialog select { font-size:16px; }
+  .game-dialog { padding:20px 14px !important; width:calc(100vw - 20px) !important; }
+  .office-tabs { flex-wrap:wrap; }
+  .office-tabs button { min-height:44px; }
+  .ceremony-title > span { font-size:9px; }
+  .ceremony-title p { max-width:240px; }
+}
+@media (max-width:350px) {
+  .joystick { width:88px; height:88px; }
+  .touch-controls { left:8px; right:8px; }
+  .scoreboard { grid-template-columns:41px 22px 48px 22px 41px; left:8px; }
+  .match-tools .icon-button { width:44px; }
+  .team-choice { grid-template-columns:34px 45px minmax(0,1fr) 34px; }
+  .team-choice strong { font-size:14px; }
+}
+@media (max-height:520px) and (orientation:landscape) {
+  .game-stage { min-height:100dvh; }
+  .menu-screen { overflow-y:auto; }
+  .menu-panel { width:min(800px,100%); max-width:none; min-width:0; padding:68px max(24px,env(safe-area-inset-right)) 24px max(24px,env(safe-area-inset-left)); }
+  .menu-panel h1 { font-size:36px; }
+  .menu-callout { display:none; }
+  .football-shell[data-screen="playing"] .scoreboard { left:50%; transform:translateX(-50%); }
+  .touch-controls { bottom:max(10px,env(safe-area-inset-bottom)); }
+  .joystick { width:96px; height:96px; }
+  .touch-actions { transform:none; }
+  .touch-button--switch { top:64px; }
+  .set-piece-hud { top:53px; padding:4px 10px; }
+  .shot-meter { bottom:12px; }
+  .ceremony-title { top:4%; }
+  .ceremony-title h2 { font-size:28px; }
+  .ceremony-title p { display:none; }
+}
+.cup-preview-button { display:flex; align-items:center; gap:8px; padding:12px 0 4px; color:#cbdcae; font-size:12px; min-height:44px; }
+.touch-set-piece { display:none; }
+@media (pointer:coarse), (max-width:960px) {
+  .keyboard-set-piece, .match-message[data-set-piece="true"] { display:none; }
+  .touch-set-piece { display:block; }
+  .match-clock span { display:block; font-size:7px; letter-spacing:.04em; }
+}

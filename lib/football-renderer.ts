@@ -1,3 +1,5 @@
+import { celebrationParticle, fireworkParticle, celebrationPose } from "./football-presentation";
+import { WEAR_COLS } from "./football-pitch";
 import {
   FIELD_H,
   FIELD_W,
@@ -929,12 +931,96 @@ function drawMinimap(
   ctx.restore();
 }
 
+function drawPitchWear(ctx: CanvasRenderingContext2D, view: View, state: MatchState) {
+  ctx.save();
+  state.pitchWear.cells.forEach((wear, index) => {
+    if (wear < .012) return;
+    const p = project(view, (index % WEAR_COLS) * 2 + 1, Math.floor(index / WEAR_COLS) * 2 + 1);
+    const stain = ctx.createRadialGradient(p.x,p.y,0,p.x,p.y,view.width/55);
+    stain.addColorStop(0,`rgba(83,64,34,${Math.min(.32,wear*.4)})`);
+    stain.addColorStop(1,"rgba(83,64,34,0)");ctx.fillStyle=stain;
+    ctx.beginPath(); ctx.ellipse(p.x,p.y,view.width/55,view.height/38,0,0,Math.PI*2); ctx.fill();
+  });
+  for (const mark of state.pitchWear.marks) {
+    const a=project(view,mark.x,mark.y), b=project(view,mark.x+mark.dx,mark.y+mark.dy);
+    ctx.strokeStyle="rgba(103,72,37,.6)";ctx.lineWidth=Math.max(1,view.width/220);ctx.lineCap="round";
+    ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.lineTo(b.x,b.y);ctx.stroke();
+  }
+  ctx.restore();
+}
+
+function drawTitleCeremony(ctx: CanvasRenderingContext2D, view: View, state: MatchState) {
+  const c=state.celebration!;
+  const team=c.winner==="home"?state.homeTeam:state.awayTeam;
+  const w=view.width,h=view.height,t=c.time, floor=h*.72;
+  ctx.save();ctx.filter="blur(3px)";drawStadium(ctx,view,"balanced");drawField(ctx,view,"balanced",state);ctx.restore();
+  ctx.fillStyle="rgba(4,12,22,.6)";ctx.fillRect(0,0,w,h);
+  const glow=ctx.createRadialGradient(w*.5,floor-90,0,w*.5,floor-90,w*.55);
+  glow.addColorStop(0,"rgba(216,184,92,.18)");glow.addColorStop(1,"rgba(216,184,92,0)");ctx.fillStyle=glow;ctx.fillRect(0,0,w,h);
+  ctx.fillStyle="#142330";ctx.fillRect(w*.17,floor,w*.66,h*.08);
+  ctx.fillStyle=team.primary;ctx.fillRect(w*.17,floor,w*.66,4);
+  ctx.fillStyle="#d4dfdf";ctx.font=`600 ${Math.max(10,w*.012)}px Arial`;ctx.textAlign="center";ctx.fillText("STADLER FOOTBALL • CAMPEÕES",w*.5,floor+h*.053);
+  const winners=state.players.filter(p=>p.side===c.winner).sort((a,b)=>Number(a.id===c.captainId)-Number(b.id===c.captainId));
+  let captainX=w*.5,captainY=floor-5, captainScale=1,lift=0;
+  for(const player of winners) {
+    const pose=celebrationPose(c,player)!;
+    const gather=Math.min(1,t/4.5),origin=project(view,pose.x,pose.y);
+    const x=origin.x*(1-gather)+(w*.5+(pose.x-50)*w*.026)*gather;
+    const y=origin.y*(1-gather)+(floor-8-(pose.height-.7)*20)*gather;
+    const scale=Math.min(w/760,h/440)*(pose.captain?1.1:1);
+    ctx.save();ctx.translate(x,y);ctx.scale(scale,scale);
+    ctx.fillStyle="rgba(0,0,0,.3)";ctx.beginPath();ctx.ellipse(0,2,15,4,0,0,Math.PI*2);ctx.fill();
+    ctx.strokeStyle=team.socks;ctx.lineWidth=7;ctx.lineCap="round";
+    const gait=pose.gathered?0:Math.sin(t*9+player.id)*8;
+    ctx.beginPath();ctx.moveTo(-6,-22);ctx.lineTo(-7+gait,-3);ctx.moveTo(6,-22);ctx.lineTo(7-gait,-3);ctx.stroke();
+    ctx.fillStyle=team.shorts;ctx.fillRect(-12,-32,24,12);
+    ctx.fillStyle=player.role==="GK"?"#cbe462":team.primary;ctx.fillRect(-13,-61,26,30);
+    ctx.fillStyle=team.secondary;
+    if(team.kitPattern==="vertical")for(let i=-11;i<13;i+=8)ctx.fillRect(i,-60,4,27);
+    else if(team.kitPattern==="horizontal")for(let i=-60;i<-32;i+=9)ctx.fillRect(-13,i,26,4);
+    ctx.strokeStyle="#bd906d";ctx.lineWidth=6;
+    const armY=-43-pose.lift*39;
+    ctx.beginPath();ctx.moveTo(-14,-56);ctx.lineTo(-23,armY);ctx.moveTo(14,-56);ctx.lineTo(23,armY);ctx.stroke();
+    ctx.fillStyle="#c59672";ctx.beginPath();ctx.ellipse(0,-72,9,11,0,0,Math.PI*2);ctx.fill();
+    ctx.fillStyle="#30251f";ctx.beginPath();ctx.ellipse(0,-79,9,5,0,Math.PI,Math.PI*2);ctx.fill();
+    ctx.fillStyle="#fff";ctx.font="bold 12px Arial";ctx.fillText(String(player.number),0,-42);
+    ctx.restore();
+    if(pose.captain){captainX=x;captainY=y;captainScale=scale;lift=pose.lift;}
+  }
+  ctx.save();ctx.translate(captainX,captainY);ctx.scale(captainScale,captainScale);ctx.translate(0,-53-lift*44);
+  ctx.shadowColor="#ffe09c";ctx.shadowBlur=14;
+  const gold=ctx.createLinearGradient(-20,0,20,0);gold.addColorStop(0,"#977028");gold.addColorStop(.4,"#fff0ad");gold.addColorStop(1,"#be852f");
+  ctx.fillStyle=gold;ctx.strokeStyle=gold;ctx.lineWidth=4;
+  ctx.beginPath();ctx.moveTo(-15,-25);ctx.lineTo(15,-25);ctx.quadraticCurveTo(15,-5,3,-4);ctx.lineTo(3,4);ctx.lineTo(11,8);ctx.lineTo(-11,8);ctx.lineTo(-3,4);ctx.lineTo(-3,-4);ctx.quadraticCurveTo(-15,-5,-15,-25);ctx.fill();
+  for(const side of [-1,1]){ctx.beginPath();ctx.ellipse(side*15,-17,8,9,0,0,Math.PI*2);ctx.stroke();}ctx.restore();
+  for(let i=0;i<640;i++){
+    const p=celebrationParticle(i,t);if(!p)continue;
+    ctx.save();ctx.globalAlpha=p.alpha;ctx.translate(w*.5+(p.x-50)*w*.026,floor+(p.y-32)*h*.006-p.z*h*.033);ctx.rotate(p.rotation);
+    ctx.fillStyle=[team.primary,team.secondary,"#f1db91"][i%3];ctx.fillRect(-2,-4,4,8);ctx.restore();
+  }
+  for(let i=0;i<288;i++){
+    const p=fireworkParticle(i,t);if(!p)continue;
+    ctx.globalAlpha=p.alpha;ctx.fillStyle=i%2?"#ffd58c":team.secondary;
+    ctx.fillRect(p.x/100*w,h*.72-p.z*h*.022,3,3);
+  }
+  ctx.globalAlpha=1;
+  if(t>5)for(let i=0;i<38;i++)if(Math.sin(t*13+i*83)>.985){ctx.fillStyle="#fff";ctx.beginPath();ctx.arc((i*97)%w,h*.22+(i*23)%(h*.22),2.4,0,Math.PI*2);ctx.fill();}
+}
+
 export function drawScene(
   ctx: CanvasRenderingContext2D,
   view: View,
   state: MatchState,
   quality: Quality,
 ) {
+  if (state.celebration) { drawTitleCeremony(ctx, view, state); return; }
+  if (view.height > view.width * 1.1) {
+    const fitted = { ...view, height: view.width * 0.78 };
+    ctx.fillStyle = "#101d27"; ctx.fillRect(0, 0, view.width, view.height);
+    ctx.save(); ctx.translate(0, (view.height - fitted.height) * 0.46);
+    drawScene(ctx, fitted, state, quality); ctx.restore();
+    return;
+  }
   const shakeScale = clamp(view.height / 720, 0.65, 1.25);
   const shakeX =
     Math.sin(state.elapsed * 93) * state.cameraShake * 5.5 * shakeScale;
@@ -944,6 +1030,7 @@ export function drawScene(
   ctx.translate(shakeX, shakeY);
   drawStadium(ctx, view, quality);
   drawField(ctx, view, quality, state);
+  drawPitchWear(ctx, view, state);
   drawDefensiveCue(ctx, view, state, quality);
   if (quality !== "performance") drawBallTrail(ctx, view, state.trail);
   const sortedPlayers = state.players

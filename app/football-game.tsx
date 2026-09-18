@@ -5,6 +5,8 @@ import {
   careerOpponentSquad,
   ensureManagement,
 } from "@/lib/football-career";
+import { joystickVector, clearMatchInput } from "@/lib/football-input";
+import { updateTitleCelebration, seekTitleCelebration } from "@/lib/football-presentation";
 import { createStadiumRenderer } from "@/lib/football-webgl";
 import CareerOffice from "./career-office";
 
@@ -28,6 +30,7 @@ import {
   TEAMS,
   attributeProfile,
   createMatch,
+  finishMatch,
   executeSetPiece,
   getPlayer,
   lineupOverall,
@@ -171,6 +174,9 @@ function TeamFlag({ team }: { team: Team }) {
 
 export default function FootballGame() {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const joystickPointer = useRef<number | null>(null);
+  const shotPointer = useRef<number | null>(null);
+  const [fullscreenHint, setFullscreenHint] = useState("");
   const rootRef = useRef<HTMLElement | null>(null);
   const engineRef = useRef<MatchState | null>(null);
   const screenRef = useRef<Screen>("menu");
@@ -193,6 +199,9 @@ export default function FootballGame() {
   });
   const audioContextRef = useRef<AudioContext | null>(null);
   const resultRecordedRef = useRef(false);
+  const ceremonyPreviewRef = useRef(false);
+  const [ceremonyPreview, setCeremonyPreview] = useState(false);
+  const [cupResult, setCupResult] = useState<{ winner: Side | null; team: Team; final: boolean; shootout: { home: number; away: number } | null } | null>(null);
   const [screen, setScreen] = useState<Screen>("menu");
   const [homeIndex, setHomeIndex] = useState(0);
   const [awayIndex, setAwayIndex] = useState(1);
@@ -445,11 +454,7 @@ export default function FootballGame() {
       );
     }
     if (competitionMode === "cup") {
-      const possessionEdge =
-        state.stats.homePossession >= state.stats.awayPossession;
-      const advanced =
-        state.homeScore > state.awayScore ||
-        (state.homeScore === state.awayScore && possessionEdge);
+      const advanced = state.winner === "home";
       if (advanced) setCupRound((current) => Math.min(3, current + 1));
       else setCupEliminated(true);
     }
@@ -557,10 +562,13 @@ export default function FootballGame() {
         ? careerOpponentSquad(career, matchAway)
         : undefined,
     );
+    next.cupRound = competitionMode === "cup" ? cupRound : null;
     const selected = getPlayer(next, next.selectedId);
     const selectedAway = getPlayer(next, next.selectedAwayId);
     engineRef.current = next;
     resultRecordedRef.current = false;
+    setCupResult(null);
+    ceremonyPreviewRef.current = false; setCeremonyPreview(false);
     inputRef.current.keys.clear();
     inputRef.current.touchX = 0;
     inputRef.current.touchY = 0;
@@ -601,6 +609,7 @@ export default function FootballGame() {
     awayIndex,
     awayTactic,
     competitionMode,
+    cupRound,
     difficulty,
     gameMode,
     homeFormation,
@@ -759,6 +768,15 @@ export default function FootballGame() {
               accumulator -= 1 / 120;
             }
           }
+        } else if (screenRef.current === "celebrating") {
+          if (!document.hidden) updateTitleCelebration(state, dt);
+          if (state.celebration?.complete) {
+            if (ceremonyPreviewRef.current) {
+              ceremonyPreviewRef.current = false; setCeremonyPreview(false);
+              engineRef.current = createMatch(state.homeTeam, state.awayTeam, state.difficulty, true);
+              setGameScreen("menu");
+            } else setGameScreen("finished");
+          }
         } else {
           updateParticles(state, dt);
         }
@@ -789,7 +807,13 @@ export default function FootballGame() {
 
         if (state.finished && screenRef.current === "playing") {
           setFinalStats({ ...state.stats });
-          setGameScreen("finished");
+          setCupResult(state.cupRound === null ? null : {
+            winner: state.winner, team: state.winner === "home" ? state.homeTeam : state.awayTeam,
+            final: state.cupRound === 2, shootout: state.shootout,
+          });
+          setGameScreen(state.celebration ? "celebrating" : "finished");
+          inputRef.current.keys.clear();
+          updateHud(state);
           playTone("whistle");
         }
 
@@ -889,6 +913,9 @@ export default function FootballGame() {
         const state = engineRef.current;
         if (!state || screenRef.current !== "playing") return;
         state.paused = !state.paused;
+        clearMatchInput(inputRef.current, state);
+        joystickPointer.current = null; shotPointer.current = null;
+        setKnob({ x: 0, y: 0 });
         setPaused(state.paused);
       },
     };
@@ -955,6 +982,8 @@ export default function FootballGame() {
     };
 
     const onBlur = () => {
+      joystickPointer.current = null; shotPointer.current = null;
+      setKnob({ x: 0, y: 0 });
       inputRef.current.keys.clear();
       inputRef.current.touchX = 0;
       inputRef.current.touchY = 0;
@@ -973,6 +1002,9 @@ export default function FootballGame() {
       }
     };
     window.addEventListener("blur", onBlur);
+    const onVisibility = () => { if (document.hidden) onBlur(); };
+    document.addEventListener("visibilitychange", onVisibility);
+    window.addEventListener("orientationchange", onBlur);
     window.addEventListener("keydown", onKeyDown, { passive: false });
     window.addEventListener("keyup", onKeyUp);
     animationFrame = requestAnimationFrame(loop);
@@ -981,6 +1013,8 @@ export default function FootballGame() {
       observer.disconnect();
       stadium?.dispose();
       window.removeEventListener("blur", onBlur);
+      document.removeEventListener("visibilitychange", onVisibility);
+      window.removeEventListener("orientationchange", onBlur);
       cancelAnimationFrame(animationFrame);
       window.removeEventListener("keydown", onKeyDown);
       window.removeEventListener("keyup", onKeyUp);
@@ -1142,30 +1176,43 @@ export default function FootballGame() {
   };
 
   const handleJoystick = (event: ReactPointerEvent<HTMLDivElement>) => {
-    const rect = event.currentTarget.getBoundingClientRect();
-    let x =
-      (event.clientX - (rect.left + rect.width / 2)) / (rect.width * 0.36);
-    let y =
-      (event.clientY - (rect.top + rect.height / 2)) / (rect.height * 0.36);
-    const magnitude = Math.hypot(x, y);
-    if (magnitude > 1) {
-      x /= magnitude;
-      y /= magnitude;
-    }
-    inputRef.current.touchX = x;
-    inputRef.current.touchY = y;
+    if (event.pointerId !== joystickPointer.current) return;
+    event.preventDefault();
+    const { x, y } = joystickVector(event.clientX, event.clientY, event.currentTarget.getBoundingClientRect());
+    inputRef.current.touchX = x; inputRef.current.touchY = y;
     setKnob({ x, y });
   };
-
-  const stopJoystick = () => {
-    inputRef.current.touchX = 0;
-    inputRef.current.touchY = 0;
+  const stopJoystick = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (event.pointerId !== joystickPointer.current) return;
+    joystickPointer.current = null;
+    inputRef.current.touchX = 0; inputRef.current.touchY = 0;
     setKnob({ x: 0, y: 0 });
+  };
+  const cancelTouchShot = () => {
+    shotPointer.current = null;
+    const state = engineRef.current;
+    if (state) { state.chargingShot = false; state.shotCharge = 0; }
+  };
+  const enterFullscreen = async () => {
+    try {
+      if (!document.fullscreenElement && rootRef.current?.requestFullscreen) {
+        await rootRef.current.requestFullscreen();
+        const orientation = window.screen.orientation as ScreenOrientation & { lock?: (mode: string) => Promise<void> };
+        try { await orientation.lock?.("landscape"); } catch { /* Manual rotation stays available. */ }
+        setFullscreenHint("");
+      } else if (document.fullscreenElement) await document.exitFullscreen();
+      else setFullscreenHint("Vire o celular na horizontal para ampliar o campo.");
+    } catch { setFullscreenHint("Vire o celular na horizontal para ampliar o campo."); }
   };
 
   const toggleSettings = (open: boolean) => {
     const state = engineRef.current;
-    if (open && state && screenRef.current === "playing") state.paused = true;
+    if (open && state && screenRef.current === "playing") {
+      state.paused = true;
+      clearMatchInput(inputRef.current, state);
+      joystickPointer.current = null; shotPointer.current = null;
+      setKnob({ x: 0, y: 0 });
+    }
     if (!open && state && screenRef.current === "playing" && !paused) {
       state.paused = false;
     }
@@ -1176,6 +1223,18 @@ export default function FootballGame() {
     const state = engineRef.current;
     if (state) state.paused = false;
     setPaused(false);
+  };
+
+  const previewCeremony = () => {
+    const preview = createMatch(homeTeam, awayTeam, difficulty, true);
+    preview.cupRound = 2; preview.homeScore = 1;
+    finishMatch(preview);
+    engineRef.current = preview;
+    ceremonyPreviewRef.current = true; setCeremonyPreview(true);
+    resultRecordedRef.current = true;
+    setCupResult({ winner: "home", team: homeTeam, final: true, shootout: null });
+    clearMatchInput(inputRef.current, preview);
+    setPaused(false); setGameScreen("celebrating");
   };
 
   const restart = () => {
@@ -1253,7 +1312,10 @@ export default function FootballGame() {
                 role="status"
               >
                 <span>{setPieceName(hud.setPieceKind)}</span>
-                <strong>{setPieceInstruction(hud)}</strong>
+                <strong className="keyboard-set-piece">{setPieceInstruction(hud)}</strong>
+                <strong className="touch-set-piece">{hud.setPieceSide === "away"
+                  ? hud.gameMode === "local2p" ? "J2: use o teclado para cobrar" : "Adversário na cobrança"
+                  : hud.setPieceReady ? "Analógico: mira • PASSE ou segure CHUTE" : "Aguarde para cobrar"}</strong>
               </div>
             )}
 
@@ -1280,8 +1342,8 @@ export default function FootballGame() {
               </button>
               <button
                 type="button"
-                className="icon-button desktop-only"
-                onClick={() => void rootRef.current?.requestFullscreen()}
+                className="icon-button fullscreen-button"
+                onClick={() => void enterFullscreen()}
                 aria-label="Tela cheia"
               >
                 <Maximize2 size={17} />
@@ -1379,11 +1441,17 @@ export default function FootballGame() {
             >
               <kbd>P</kbd> pausa e controles
             </button>
-            <div className="touch-controls" aria-label="Controles de toque">
+            <p className="mobile-play-hint" role="status">{fullscreenHint || (hud.gameMode === "local2p" ? "Toque controla J1 • J2 usa teclado" : "Na borda do analógico: correr • Segure chute: força")}</p>
+            <div className="touch-controls" aria-label="Controles de toque" onContextMenu={event => event.preventDefault()}>
+              <span className="touch-orientation-hint">Vire o celular para uma visão mais ampla</span>
               <div
                 className="joystick"
-                role="presentation"
+                role="group"
+                aria-label="Analógico: mover; arraste até a borda para correr"
+                data-sprinting={Math.hypot(knob.x, knob.y) > 0.82}
                 onPointerDown={(event) => {
+                  if (joystickPointer.current !== null || engineRef.current?.paused) return;
+                  joystickPointer.current = event.pointerId;
                   event.currentTarget.setPointerCapture(event.pointerId);
                   handleJoystick(event);
                 }}
@@ -1394,11 +1462,12 @@ export default function FootballGame() {
                 }}
                 onPointerUp={stopJoystick}
                 onPointerCancel={stopJoystick}
+                onLostPointerCapture={stopJoystick}
               >
                 <i
                   style={{
                     transform:
-                      "translate(" + knob.x * 32 + "px, " + knob.y * 32 + "px)",
+                      "translate(" + knob.x * 28 + "px, " + knob.y * 28 + "px)",
                   }}
                 />
               </div>
@@ -1412,9 +1481,8 @@ export default function FootballGame() {
                 onPointerUp={() => {
                   inputRef.current.touchSprint = false;
                 }}
-                onPointerCancel={() => {
-                  inputRef.current.touchSprint = false;
-                }}
+                onPointerCancel={() => { inputRef.current.touchSprint = false; }}
+                onLostPointerCapture={() => { inputRef.current.touchSprint = false; }}
                 aria-label="Correr"
               >
                 <Zap size={18} />
@@ -1424,49 +1492,58 @@ export default function FootballGame() {
                 <button
                   type="button"
                   className="touch-button touch-button--tackle"
-                  onPointerDown={() => actionsRef.current.steal()}
+                  onClick={() => actionsRef.current.steal()}
                   aria-label="Dar o bote e roubar a bola"
                 >
-                  ROU
+                  BOTE
                   <small>roubar</small>
                 </button>
                 <button
                   type="button"
                   className="touch-button touch-button--switch"
-                  onPointerDown={() => actionsRef.current.switchPlayer()}
+                  onClick={() => actionsRef.current.switchPlayer()}
                   aria-label="Trocar jogador selecionado"
                 >
-                  TRO
-                  <small>trocar</small>
+                  TROCAR
+                  <small>jogador</small>
                 </button>
                 <button
                   type="button"
                   className="touch-button touch-button--slide"
-                  onPointerDown={() => actionsRef.current.slide()}
+                  onClick={() => actionsRef.current.slide()}
                   aria-label="Dar carrinho"
                 >
-                  CAR
-                  <small>carrinho</small>
+                  CARRINHO
                 </button>
                 <button
                   type="button"
                   className="touch-button touch-button--pass"
-                  onPointerDown={() => actionsRef.current.pass()}
+                  onClick={() => actionsRef.current.pass()}
                   aria-label="Passar a bola"
                 >
-                  PAS
-                  <small>passe</small>
+                  PASSE
                 </button>
                 <button
                   type="button"
                   className="touch-button touch-button--shoot"
-                  onPointerDown={() => actionsRef.current.shootStart()}
-                  onPointerUp={() => actionsRef.current.shootRelease()}
-                  onPointerCancel={() => actionsRef.current.shootRelease()}
+                  onPointerDown={event => {
+                    if (shotPointer.current !== null || engineRef.current?.paused) return;
+                    event.preventDefault(); shotPointer.current = event.pointerId;
+                    event.currentTarget.setPointerCapture(event.pointerId);
+                    actionsRef.current.shootStart();
+                  }}
+                  onPointerUp={event => {
+                    if (event.pointerId !== shotPointer.current) return;
+                    shotPointer.current = null; actionsRef.current.shootRelease();
+                  }}
+                  onPointerCancel={cancelTouchShot}
+                  onLostPointerCapture={event => { if (event.pointerId === shotPointer.current) cancelTouchShot(); }}
+                  onKeyDown={event => { if (event.key === " " || event.key === "Enter") { event.preventDefault(); actionsRef.current.shootStart(); } }}
+                  onKeyUp={event => { if (event.key === " " || event.key === "Enter") actionsRef.current.shootRelease(); }}
                   aria-label="Chutar a bola"
                 >
-                  CHU
-                  <small>chute</small>
+                  CHUTE
+                  <small>segure</small>
                 </button>
               </div>
             </div>
@@ -1474,7 +1551,7 @@ export default function FootballGame() {
         )}
 
         {hud.message && screen === "playing" && (
-          <div className="match-message" role="status">
+          <div className="match-message" data-set-piece={hud.setPieceKind !== null} role="status">
             {hud.message}
           </div>
         )}
@@ -1482,6 +1559,7 @@ export default function FootballGame() {
         {screen === "menu" && (
           <div className="menu-screen">
             <div className="menu-panel">
+              <p className="mobile-menu-note">Pronto para toque • Jogue na horizontal para ampliar o campo.</p>
               <div className="eyebrow">
                 <span>
                   <i /> MATCHDAY
@@ -1784,6 +1862,9 @@ export default function FootballGame() {
                       ),
                     )}
                   </div>
+                  <button type="button" className="cup-preview-button" onClick={previewCeremony}>
+                    <Trophy size={15} /> Ver prévia da entrega da taça
+                  </button>
                   {(cupEliminated || cupRound === 3) && (
                     <button
                       type="button"
@@ -2038,16 +2119,29 @@ export default function FootballGame() {
           </div>
         )}
 
+        {screen === "celebrating" && cupResult && (
+          <div className="title-ceremony" aria-label="Cerimônia de entrega da taça">
+            <div className="ceremony-title" role="status">
+              <span>{ceremonyPreview ? "PRÉVIA DA CERIMÔNIA" : "CAMPEÃO"} • {cupNameFor(homeTeam, cupScope)}</span>
+              <h2>{cupResult.team.name}</h2>
+              <p>{ceremonyPreview ? "Apresentação visual • sua campanha continua intacta" : "Uma campanha. Um time. Uma conquista."}</p>
+            </div>
+            <button className="ceremony-skip" type="button" onClick={() => {
+              seekTitleCelebration(engineRef.current, false);
+              if (ceremonyPreview) { ceremonyPreviewRef.current = false; setCeremonyPreview(false); goToMenu(); }
+              else setGameScreen("finished");
+            }}>Pular comemoração <ChevronRight size={18} /></button>
+          </div>
+        )}
+
         {screen === "finished" && (
           <div className="finish-screen">
             <div className="finish-card">
               <Trophy className="finish-trophy" />
               <span>FIM DE JOGO</span>
               <h2>
-                {competitionMode === "cup" && hud.homeScore === hud.awayScore
-                  ? homePossession >= 50
-                    ? "CLASSIFICADO NOS PÊNALTIS!"
-                    : "ELIMINADO NOS PÊNALTIS"
+                {cupResult?.final ? `${cupResult.team.short} CAMPEÃO!`
+                  : cupResult ? (cupResult.winner === "home" ? "CLASSIFICADO!" : "ELIMINADO")
                   : hud.homeScore === hud.awayScore
                     ? "EMPATE!"
                     : hud.gameMode === "local2p"
@@ -2071,6 +2165,11 @@ export default function FootballGame() {
                   <strong>{awayTeam.short}</strong>
                 </div>
               </div>
+              {cupResult?.shootout && <p className="shootout-result">Pênaltis: {cupResult.shootout.home} × {cupResult.shootout.away} · cobranças simuladas</p>}
+              {cupResult?.final && <button type="button" className="ceremony-replay" onClick={() => {
+                if (!seekTitleCelebration(engineRef.current, true)) return;
+                setGameScreen("celebrating");
+              }}><Trophy size={16} /> Rever entrega da taça</button>}
               <div className="stats-table" aria-label="Estatísticas da partida">
                 <div>
                   <b>{finalStats.homeShots}</b>
@@ -2104,9 +2203,9 @@ export default function FootballGame() {
                 </div>
               </div>
               <div className="finish-actions">
-                <button type="button" className="play-button" onClick={restart}>
+                {competitionMode === "friendly" && <button type="button" className="play-button" onClick={restart}>
                   <RotateCcw size={19} /> REVANCHE
-                </button>
+                </button>}
                 <button
                   type="button"
                   className="secondary-button"
