@@ -4241,3 +4241,18 @@ button:focus-visible { outline:2px solid #c5f58b; outline-offset:3px; }
  .touch-specials button,.touch-specials select { font-size:9px; padding:4px 6px; }
  .touch-editor-toolbar { top:60px; font-size:12px; }
 }
+@media (pointer:fine) and (min-width:901px) {
+ .touch-controls[data-editing=true] { position:absolute; height:148px; left:20px; right:20px; bottom:20px; align-items:flex-end; justify-content:space-between; pointer-events:none; }
+ .touch-controls[data-editing=true] .joystick { position:relative; display:grid; place-items:center; width:104px; height:104px; border:1px solid #a5bdbb70; border-radius:50%; background:#102531dd; touch-action:none; }
+ .touch-controls[data-editing=true] .joystick i { width:42px; height:42px; border-radius:50%; background:#cbe4d65e; pointer-events:none; }
+ .touch-controls[data-editing=true] .touch-sprint { position:absolute; left:124px; bottom:0; min-width:60px; min-height:52px; border-radius:12px; background:#203c34; color:white; touch-action:none; }
+ .touch-controls[data-editing=true] .touch-actions { position:relative; width:220px; height:148px; pointer-events:none; }
+ .touch-controls[data-editing=true] .touch-button { position:absolute; display:flex; flex-direction:column; align-items:center; justify-content:center; width:58px; height:58px; border:1px solid #c4ded477; border-radius:50%; background:#152935; color:white; font-size:10px; touch-action:none; }
+ .touch-controls[data-editing=true] .touch-button small { font-size:8px; }
+ .touch-controls[data-editing=true] .touch-button--shoot { right:0; bottom:0; width:66px; height:66px; color:#12231a; background:#c5f58b; }
+ .touch-controls[data-editing=true] .touch-button--pass { right:78px; bottom:0; }
+ .touch-controls[data-editing=true] .touch-button--tackle { right:0; top:2px; }
+ .touch-controls[data-editing=true] .touch-button--slide { right:72px; top:4px; }
+ .touch-controls[data-editing=true] .touch-button--switch { right:148px; top:58px; }
+ .touch-controls[data-editing=true] .touch-orientation-hint { display:none; }
+}
