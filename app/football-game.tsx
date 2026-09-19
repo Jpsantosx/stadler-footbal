@@ -13,6 +13,10 @@ import { drawRadar } from "@/lib/football-radar";
 import { DEFAULT_PRESENTATION, parsePresentation, type PresentationSettings, type CameraMode, type StadiumLight } from "@/lib/football-camera";
 import { createStadiumRenderer } from "@/lib/football-webgl";
 import CareerOffice from "./career-office";
+import AdvancedControls from './advanced-controls';
+import { createGoalReplay } from '@/lib/football-replay';
+import { DEFAULT_CONTROLS, parseControls, shotModifiers, rumble, type ControlPreferences } from '@/lib/football-controls';
+import { performSkill, type ShotKind } from '@/lib/football-engine';
 import ControllerSettings from "./controller-settings";
 import { createGamepadDriver, beginPadCalibration, advancePadCalibration, parsePadProfiles, CALIBRATION_STEPS, padButtonLabel, type PadInfo, type PadProfiles, type PadCalibration, type PadSample } from "@/lib/football-gamepad";
 import { navigateGamepadMenu } from "@/lib/football-gamepad-menu";
@@ -185,6 +189,27 @@ function TeamFlag({ team }: { team: Team }) {
 }
 
 export default function FootballGame() {
+  const replayRef = useRef(createGoalReplay());
+  const [replaying,setReplaying] = useState(false);
+  const [controls,setControls] = useState<ControlPreferences>(DEFAULT_CONTROLS);
+  const controlsRef = useRef(DEFAULT_CONTROLS);
+  const shotKindsRef = useRef<Record<Side,ShotKind>>({home:'auto',away:'auto'});
+  const [editingTouch,setEditingTouch] = useState(false);
+  const editingTouchRef = useRef(false);
+  const dragControlRef = useRef<{id:number;key:string}|null>(null);
+  const saveControls = (next:ControlPreferences) => {
+    const safe=parseControls(next);controlsRef.current=safe;setControls(safe);
+    try{localStorage.setItem('stadler-controls-v2',JSON.stringify(safe));}catch{/* Session still works. */}
+  };
+  const controlStyle = (key:string):CSSProperties => {
+    const pos=controls.layout[key];
+    return pos ? {position:'fixed',left:`clamp(68px, ${pos.x*100}vw, calc(100vw - 68px))`,top:`clamp(68px, ${pos.y*100}vh, calc(100vh - 68px))`,right:'auto',bottom:'auto',transform:`translate(-50%, -50%) scale(${controls.touchScale})`} : {transform:`scale(${controls.touchScale})`};
+  };
+  const editControlMove = (event:ReactPointerEvent<HTMLDivElement>) => {
+    const drag=dragControlRef.current;if(!drag||drag.id!==event.pointerId)return;
+    event.preventDefault();event.stopPropagation();
+    saveControls({...controlsRef.current,layout:{...controlsRef.current.layout,[drag.key]:{x:event.clientX/window.innerWidth,y:event.clientY/window.innerHeight}}});
+  };
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const radarRef = useRef<HTMLCanvasElement | null>(null);
   const joystickPointer = useRef<number | null>(null);
@@ -206,8 +231,10 @@ export default function FootballGame() {
     touchY: 0,
     touchSprint: false,
   });
+  const skipReplay = () => {replayRef.current.skip();setReplaying(false);clearMatchInput(inputRef.current,engineRef.current);gamepadDriverRef.current?.reset();};
   const actionsRef = useRef<GameActions>({
     pass: () => undefined,
+    skill: () => undefined,
     shootStart: () => undefined,
     shootRelease: () => undefined,
     steal: () => undefined,
@@ -409,6 +436,7 @@ export default function FootballGame() {
         padProfilesRef.current=profiles;setPadProfiles(profiles);
       } catch { /* A missing controller profile uses browser standard mapping. */ }
       try {
+        const savedControls=parseControls(JSON.parse(window.localStorage.getItem('stadler-controls-v2')||'{}'));controlsRef.current=savedControls;setControls(savedControls);
         const preferences = JSON.parse(window.localStorage.getItem("stadler-presentation-v1") || "{}");
         setPresentation(parsePresentation(preferences));
         if (["performance","balanced","ultra"].includes(preferences.quality)) setQuality(preferences.quality);
@@ -601,6 +629,7 @@ export default function FootballGame() {
     next.cupRound = competitionMode === "cup" ? cupRound : null;
     const selected = getPlayer(next, next.selectedId);
     const selectedAway = getPlayer(next, next.selectedAwayId);
+    replayRef.current.reset();setReplaying(false);
     engineRef.current = next;
     resultRecordedRef.current = false;
     setCupResult(null);
@@ -766,9 +795,9 @@ export default function FootballGame() {
           }
         }
       }
-      const active=screenRef.current==="playing" && !state.paused;
-      const context=!pageFocused || document.hidden || !!calibrationRef.current ? "blocked" : active ? "playing" : "menu";
-      const frame=gamepads.poll(pads as (PadSample|null)[],state.gameMode,context,now,padProfilesRef.current);
+      const active=screenRef.current==="playing" && !state.paused && !replayRef.current.active;
+      const context=!pageFocused || document.hidden || editingTouchRef.current || !!calibrationRef.current ? "blocked" : active ? "playing" : "menu";
+      const frame=gamepads.poll(pads as (PadSample|null)[],state.gameMode,context,now,padProfilesRef.current,controlsRef.current.sensitivity);
       const digest=JSON.stringify(frame.infos);
       if(digest!==controllerDigest){controllerDigest=digest;setPadInfos(frame.infos);}
       inputRef.current.controllers=frame.inputs;
@@ -779,6 +808,10 @@ export default function FootballGame() {
         return;
       }
       if(context==="blocked")return;
+      if(replayRef.current.active){
+        if(frame.events.some(e=>['confirm','back','pause'].includes(e.action))) {replayRef.current.skip();setReplaying(false);clearMatchInput(inputRef.current,state);gamepads.reset();}
+        return;
+      }
       if(frame.events.some(e=>e.action==="pause")) {
         if(active)actionsRef.current.togglePause();
         else if(screenRef.current==="playing" && state.paused && !document.querySelector('[role="dialog"]'))actionsRef.current.togglePause();
@@ -793,7 +826,12 @@ export default function FootballGame() {
           }
         } else {
           const action=actionsRef.current;
-          if(event.action==="pass"||event.action==="through")action.pass(event.side,event.action==="through");
+          if(['shootRelease','rainbow','bicycle','slide'].includes(event.action)){
+            const seat=frame.infos.find(i=>i.side===event.side);const pad=pads.find(p=>p?.index===seat?.index);
+            void rumble(pad,controlsRef.current.vibration,event.action==='bicycle'?.65:.35,100);
+          }
+          if(event.action==='rainbow'||event.action==='feint'||event.action==='bicycle')action.skill(event.action,event.side);
+          else if(event.action==="pass"||event.action==="through")action.pass(event.side,event.action==="through");
           else if(event.action==="shootStart") {
             const owner=getPlayer(state,state.ball.owner);
             if(owner?.side!==event.side && !state.setPiece)action.steal(event.side);
@@ -899,13 +937,16 @@ export default function FootballGame() {
         pollControllers(state,now);
         const demo = screenRef.current === "menu";
         if (demo || screenRef.current === "playing") {
-          if (state.paused || document.hidden) accumulator = 0;
+          if (state.paused || document.hidden || replayRef.current.active) accumulator = 0;
           else {
             accumulator += dt * (demo ? 0.62 : 1);
             while (accumulator >= 1 / 120) {
               presenter.capture(state);
+              if(!demo)replayRef.current.record(state,1/120);
+              const goalsBefore=state.homeScore+state.awayScore;
               updateMatch(state, inputRef.current, 1 / 120, demo);
               accumulator -= 1 / 120;
+              if(state.homeScore+state.awayScore!==goalsBefore){accumulator=0;break;}
             }
           }
         } else if (screenRef.current === "celebrating") {
@@ -925,7 +966,11 @@ export default function FootballGame() {
           state.homeScore !== previousHomeScore ||
           state.awayScore !== previousAwayScore
         ) {
-          if (screenRef.current === "playing") playTone("goal");
+          if (screenRef.current === "playing") {
+            playTone("goal");
+            if(replayRef.current.start(state)){setReplaying(true);clearMatchInput(inputRef.current,state);gamepads.reset();}
+            try{for(const pad of navigator.getGamepads?.()??[])if(pad?.connected)void rumble(pad,controlsRef.current.vibration,.8,300);}catch{/* Unsupported gamepads. */}
+          }
           previousHomeScore = state.homeScore;
           previousAwayScore = state.awayScore;
         }
@@ -957,11 +1002,14 @@ export default function FootballGame() {
           playTone("whistle");
         }
 
-        const visual = presenter.sample(state, state.paused || state.finished || screenRef.current !== "playing" ? 1 : accumulator * 120);
-        if (stadium) stadium.render(visual, renderQuality, presentationRef.current);
+        const wasReplayActive=replayRef.current.active;
+        const replayVisual=wasReplayActive?replayRef.current.sample(document.hidden||state.paused?0:dt):null;
+        if(wasReplayActive&&!replayRef.current.active){setReplaying(false);clearMatchInput(inputRef.current,state);gamepads.reset();}
+        const visual = replayVisual ?? presenter.sample(state, state.paused || state.finished || screenRef.current !== "playing" ? 1 : accumulator * 120);
+        if (stadium) stadium.render(visual, renderQuality, replayVisual?{...presentationRef.current,camera:"close"}:presentationRef.current);
         else if (context) {
           context.setTransform(view.dpr, 0, 0, view.dpr, 0, 0);
-          drawScene(context, view, visual, renderQuality, presentationRef.current);
+          drawScene(context, view, visual, renderQuality, replayVisual?{...presentationRef.current,camera:"close"}:presentationRef.current);
         }
         hudTimer += dt;
         fpsTimer += dt;
@@ -980,9 +1028,13 @@ export default function FootballGame() {
     };
 
     actionsRef.current = {
+      skill: (kind,side='home') => {
+        const state=engineRef.current;if(!state||screenRef.current!=='playing'||replayRef.current.active||editingTouchRef.current)return;
+        if(performSkill(state,side,kind))playTone('kick');
+      },
       pass: (side = "home", through = false) => {
         const state = engineRef.current;
-        if (!state || state.paused || screenRef.current !== "playing") return;
+        if (!state || state.paused || screenRef.current !== "playing" || replayRef.current.active || editingTouchRef.current) return;
         if (state.setPiece) {
           if (state.setPiece.side === side && state.setPiece.ready) {
             executeSetPiece(state, "pass");
@@ -994,8 +1046,13 @@ export default function FootballGame() {
         if (passBall(state,side,intent,through)) playTone("kick");
       },
       shootStart: (side = "home") => {
+        const input=inputRef.current, pad=input.controllers?.[side];
+        const shield=!!pad?.shield || (side==='home'?(input.keys.has('KeyH')||!!input.touchShield):input.keys.has('Numpad0'));
+        const sprint=!!pad?.sprint || (side==='home'?(input.keys.has('ShiftLeft')||input.keys.has('ShiftRight')):input.keys.has('Enter'));
+        shotKindsRef.current[side]=shotModifiers(shield,sprint);
+        if(side==='home'&&shotPointer.current!==null)shotKindsRef.current.home=controlsRef.current.touchShot;
         const state = engineRef.current;
-        if (!state || state.paused || screenRef.current !== "playing") return;
+        if (!state || state.paused || screenRef.current !== "playing" || replayRef.current.active || editingTouchRef.current) return;
         if (state.setPiece) {
           if (
             state.setPiece.side === side &&
@@ -1022,30 +1079,30 @@ export default function FootballGame() {
         const state = engineRef.current;
         const charging =
           side === "home" ? state?.chargingShot : state?.chargingAwayShot;
-        if (!state || !charging) return;
+        if (!state || !charging || state.paused || replayRef.current.active || editingTouchRef.current) return;
         if (state.setPiece?.side === side && state.setPiece.ready) {
           executeSetPiece(state, "shot");
         } else {
-          releaseShot(state, side);
+          releaseShot(state, side,shotKindsRef.current[side]);
         }
         playTone("kick");
       },
       steal: (side = "home") => {
         const state = engineRef.current;
-        if (!state || state.paused || screenRef.current !== "playing") return;
+        if (!state || state.paused || screenRef.current !== "playing" || replayRef.current.active || editingTouchRef.current) return;
         if (state.setPiece) return;
         stealBall(state, side);
         playTone("tackle");
       },
       switchPlayer: (side = "home") => {
         const state = engineRef.current;
-        if (!state || state.paused || screenRef.current !== "playing") return;
+        if (!state || state.paused || screenRef.current !== "playing" || replayRef.current.active || editingTouchRef.current) return;
         if (state.setPiece) return;
         switchToClosestPlayer(state, side);
       },
       slide: (side = "home") => {
         const state = engineRef.current;
-        if (!state || state.paused || screenRef.current !== "playing") return;
+        if (!state || state.paused || screenRef.current !== "playing" || replayRef.current.active || editingTouchRef.current) return;
         if (state.setPiece) return;
         slideTackle(state, side);
         playTone("tackle");
@@ -1063,7 +1120,8 @@ export default function FootballGame() {
     };
 
     const onKeyDown = (event: KeyboardEvent) => {
-      if (screenRef.current !== "playing") return;
+      if (screenRef.current !== "playing" || editingTouchRef.current) return;
+      if(replayRef.current.active){if(['Space','Escape','Enter'].includes(event.code)){event.preventDefault();skipReplay();}return;}
       const dialog = document.querySelector('[role="dialog"]');
       if (dialog && !dialog.classList.contains("pause-dialog")) return;
       if (engineRef.current?.paused && event.code !== "KeyP" && event.code !== "Escape") return;
@@ -1082,6 +1140,11 @@ export default function FootballGame() {
       inputRef.current.keys.add(event.code);
       if (event.repeat) return;
       const localTwoPlayer = engineRef.current?.gameMode === "local2p";
+      const keys=inputRef.current.keys;
+      if(event.code==='KeyG'||(keys.has('KeyH')&&event.code==='KeyF')){event.preventDefault();actionsRef.current.skill('rainbow');return;}
+      if(event.code==='KeyT'||(keys.has('KeyH')&&event.code==='KeyR')){event.preventDefault();actionsRef.current.skill('feint');return;}
+      if(event.code==='KeyB'||(keys.has('KeyH')&&event.code==='KeyE')){event.preventDefault();actionsRef.current.skill('bicycle');return;}
+      if(localTwoPlayer&&keys.has('Numpad0')&&['KeyK','KeyU','KeyJ'].includes(event.code)){event.preventDefault();actionsRef.current.skill(event.code==='KeyK'?'rainbow':event.code==='KeyU'?'feint':'bicycle','away');return;}
       if (localTwoPlayer) {
         if (event.code === "KeyF") actionsRef.current.pass("home", inputRef.current.keys.has("ShiftLeft"));
         if (event.code === "Space") actionsRef.current.shootStart("home");
@@ -1126,6 +1189,18 @@ export default function FootballGame() {
       }
     };
 
+    const onMouseDown = (event:PointerEvent) => {
+      if(event.pointerType!=='mouse'||screenRef.current!=='playing'||engineRef.current?.paused||editingTouchRef.current||replayRef.current.active)return;
+      event.preventDefault();canvas.setPointerCapture(event.pointerId);
+      if(event.button===0)actionsRef.current.shootStart();
+      if(event.button===2){if(inputRef.current.keys.has('KeyH'))actionsRef.current.skill('rainbow');else actionsRef.current.pass();}
+      if(event.button===1)actionsRef.current.skill(inputRef.current.keys.has('KeyH')?'bicycle':'feint');
+    };
+    const onMouseUp = (event:PointerEvent) => {if(event.pointerType==='mouse'&&event.button===0)actionsRef.current.shootRelease();};
+    const onMouseCancel = () => {clearMatchInput(inputRef.current,engineRef.current);};
+    const onContext = (event:Event) => event.preventDefault();
+    canvas.addEventListener('pointerdown',onMouseDown);canvas.addEventListener('pointerup',onMouseUp);
+    canvas.addEventListener('pointercancel',onMouseCancel);canvas.addEventListener('contextmenu',onContext);
     const onBlur = () => {
       pageFocused=false;gamepads.reset();inputRef.current.controllers={};
       joystickPointer.current = null; shotPointer.current = null; passPointer.current = null;
@@ -1167,6 +1242,8 @@ export default function FootballGame() {
       document.removeEventListener("visibilitychange", onVisibility);
       window.removeEventListener("orientationchange", onOrientation);
       cancelAnimationFrame(animationFrame);
+      canvas.removeEventListener('pointerdown',onMouseDown);canvas.removeEventListener('pointerup',onMouseUp);
+      canvas.removeEventListener('pointercancel',onMouseCancel);canvas.removeEventListener('contextmenu',onContext);
       window.removeEventListener("keydown", onKeyDown);
       window.removeEventListener("keyup", onKeyUp);
     };
@@ -1354,7 +1431,7 @@ export default function FootballGame() {
       joystickPointer.current = null; shotPointer.current = null; passPointer.current = null;
       setKnob({ x: 0, y: 0 });
     }
-    if (!open && state && screenRef.current === "playing" && !paused) {
+    if (!open && state && screenRef.current === "playing" && !paused && !editingTouchRef.current) {
       state.paused = false;
     }
     setSettingsOpen(open);
@@ -1599,10 +1676,16 @@ export default function FootballGame() {
               <kbd>P</kbd> pausa e controles
             </button>
             <p className="mobile-play-hint" role="status">{fullscreenHint || (hud.gameMode === "local2p" ? "J1 e J2: controles ou teclado • Toque: J1" : "Analógico: mira/corre • Segure passe: enfiada")}</p>
-            <div className="touch-controls" aria-label="Controles de toque" onContextMenu={event => event.preventDefault()}>
+            <div className="touch-controls" data-editing={editingTouch} aria-label="Controles de toque"
+              onClickCapture={e=>{if(editingTouch){e.preventDefault();e.stopPropagation();}}}
+              onPointerDownCapture={e=>{if(!editingTouch)return;e.preventDefault();e.stopPropagation();const target=(e.target as HTMLElement).closest<HTMLElement>('[data-control]');if(target?.dataset.control){dragControlRef.current={id:e.pointerId,key:target.dataset.control};e.currentTarget.setPointerCapture(e.pointerId);}}}
+              onPointerMoveCapture={editControlMove}
+              onPointerUpCapture={e=>{if(!editingTouch)return;e.preventDefault();e.stopPropagation();dragControlRef.current=null;if(e.currentTarget.hasPointerCapture(e.pointerId))e.currentTarget.releasePointerCapture(e.pointerId);}}
+              onPointerCancelCapture={()=>{dragControlRef.current=null;}}
+              onLostPointerCapture={()=>{dragControlRef.current=null;}} onContextMenu={event => event.preventDefault()}>
               <span className="touch-orientation-hint">Vire o celular para uma visão mais ampla</span>
               <div
-                className="joystick"
+                className="joystick" data-control="joystick" style={controlStyle("joystick")}
                 role="group"
                 aria-label="Analógico: mover; arraste até a borda para correr"
                 data-sprinting={Math.hypot(knob.x, knob.y) > 0.82}
@@ -1630,7 +1713,7 @@ export default function FootballGame() {
               </div>
               <button
                 type="button"
-                className="touch-sprint"
+                className="touch-sprint" data-control="sprint" style={controlStyle("sprint")}
                 onPointerDown={(event) => {
                   event.currentTarget.setPointerCapture(event.pointerId);
                   inputRef.current.touchSprint = true;
@@ -1648,7 +1731,7 @@ export default function FootballGame() {
               <div className="touch-actions">
                 <button
                   type="button"
-                  className="touch-button touch-button--tackle"
+                  className="touch-button touch-button--tackle" data-control="tackle" style={controlStyle("tackle")}
                   onClick={() => actionsRef.current.steal()}
                   aria-label="Dar o bote e roubar a bola"
                 >
@@ -1657,7 +1740,7 @@ export default function FootballGame() {
                 </button>
                 <button
                   type="button"
-                  className="touch-button touch-button--switch"
+                  className="touch-button touch-button--switch" data-control="switch" style={controlStyle("switch")}
                   onClick={() => actionsRef.current.switchPlayer()}
                   aria-label="Trocar jogador selecionado"
                 >
@@ -1666,7 +1749,7 @@ export default function FootballGame() {
                 </button>
                 <button
                   type="button"
-                  className="touch-button touch-button--slide"
+                  className="touch-button touch-button--slide" data-control="slide" style={controlStyle("slide")}
                   onClick={() => actionsRef.current.slide()}
                   aria-label="Dar carrinho"
                 >
@@ -1674,7 +1757,7 @@ export default function FootballGame() {
                 </button>
                 <button
                   type="button"
-                  className="touch-button touch-button--pass"
+                  className="touch-button touch-button--pass" data-control="pass" style={controlStyle("pass")}
                   onPointerDown={event => {
                     event.preventDefault();
                     if (passPointer.current) return;
@@ -1697,7 +1780,7 @@ export default function FootballGame() {
                 </button>
                 <button
                   type="button"
-                  className="touch-button touch-button--shoot"
+                  className="touch-button touch-button--shoot" data-control="shoot" style={controlStyle("shoot")}
                   onPointerDown={event => {
                     if (shotPointer.current !== null || engineRef.current?.paused) return;
                     event.preventDefault(); shotPointer.current = event.pointerId;
@@ -1722,6 +1805,13 @@ export default function FootballGame() {
           </>
         )}
 
+        {replaying&&<div className="replay-overlay" role="status"><b>REPLAY DO GOL · 0,5×</b><span>Câmera alternativa</span><button type="button" onClick={skipReplay}>Pular replay · Espaço / A / ✕</button></div>}
+        {editingTouch&&<div className="touch-editor-toolbar"><strong>Arraste cada controle até a posição desejada</strong><button type="button" onClick={()=>saveControls({...controlsRef.current,layout:{}})}>Restaurar</button><button type="button" onClick={()=>{editingTouchRef.current=false;setEditingTouch(false);dragControlRef.current=null;clearMatchInput(inputRef.current,engineRef.current);setPaused(true);}}>Concluir</button></div>}
+        {screen==='playing'&&!replaying&&!editingTouch&&<div className="touch-specials">
+          <button type="button" onPointerDown={e=>{e.currentTarget.setPointerCapture(e.pointerId);inputRef.current.touchShield=true;}} onPointerUp={()=>{inputRef.current.touchShield=false;}} onPointerCancel={()=>{inputRef.current.touchShield=false;}} onLostPointerCapture={()=>{inputRef.current.touchShield=false;}}>Proteger</button>
+          <button type="button" onClick={()=>actionsRef.current.skill('rainbow')}>Chapéu</button><button type="button" onClick={()=>actionsRef.current.skill('feint')}>Finta</button><button type="button" onClick={()=>actionsRef.current.skill('bicycle')}>Bicicleta</button>
+          <select aria-label="Tipo de chute no celular" value={controls.touchShot} onChange={e=>saveControls({...controlsRef.current,touchShot:e.target.value as ShotKind})}><option value="auto">Chute normal</option><option value="placed">Colocado</option><option value="lob">Cavadinha</option><option value="power">Superchute</option></select>
+        </div>}
         {hud.message && screen === "playing" && (
           <div className="match-message" data-set-piece={hud.setPieceKind !== null} role="status">
             {hud.message}
@@ -2555,6 +2645,8 @@ export default function FootballGame() {
             <label><span><strong>Ajuste automático de desempenho</strong><small>Reduz a resolução e os efeitos quando a partida perde fluidez.</small></span><Switch checked={presentation.automatic} onCheckedChange={automatic=>setPresentation(p=>({...p,automatic}))} aria-label="Ajuste automático de desempenho" /></label>
             <label><span><strong>Radar da partida</strong><small>Veja os companheiros, adversários e a bola no campo inteiro.</small></span><Switch checked={presentation.radar} onCheckedChange={radar=>setPresentation(p=>({...p,radar}))} aria-label="Mostrar radar da partida" /></label>
           </div>
+          <AdvancedControls value={controls} onChange={saveControls} canEdit={screen==='playing'&&!replaying}
+            onEdit={()=>{setSettingsOpen(false);editingTouchRef.current=true;setEditingTouch(true);setPaused(false);if(engineRef.current)engineRef.current.paused=true;clearMatchInput(inputRef.current,engineRef.current);gamepadDriverRef.current?.reset();}}/>
           <ControllerSettings infos={padInfos} profiles={padProfiles} calibration={calibration} notice={controllerNotice}
             onCalibrate={info=>{const next=beginPadCalibration(info);calibrationRef.current=next;setCalibration(next);gamepadDriverRef.current?.reset();setControllerNotice("");}}
             onCancel={()=>{calibrationRef.current=null;setCalibration(null);gamepadDriverRef.current?.reset();}}

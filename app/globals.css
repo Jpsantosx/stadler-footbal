@@ -4211,3 +4211,33 @@ button:focus-visible { outline:2px solid #c5f58b; outline-offset:3px; }
   .match-radar { width:112px; bottom:16px; }
   .match-radar ~ .shot-meter:not(.shot-meter--p1):not(.shot-meter--p2) { bottom:114px; }
 }
+
+/* Advanced gameplay controls: touch editing pauses the simulation. */
+.advanced-controls { padding:18px 0; border-top:1px solid #ffffff25; display:grid; gap:12px; }
+.advanced-controls h3 { font-size:18px; font-weight:750; }
+.advanced-controls p { font-size:12px; line-height:1.6; opacity:.8; }
+.advanced-controls label { display:flex; flex-wrap:wrap; align-items:center; gap:12px; font-size:13px; }
+.advanced-controls input[type=range] { width:100%; accent-color:#b7ef82; }
+.advanced-controls button,.replay-overlay button,.touch-editor-toolbar button { min-height:44px; padding:10px 16px; border:1px solid #9abe9b70; border-radius:10px; background:#203c34; color:#ecffe5; cursor:pointer; }
+.advanced-controls button:disabled { opacity:.45; cursor:default; }
+.combo-table { overflow-x:auto; }
+.combo-table table { min-width:500px; width:100%; font-size:12px; text-align:left; border-collapse:collapse; }
+.combo-table td,.combo-table th { padding:10px; border-bottom:1px solid #ffffff20; }
+.replay-overlay { position:absolute; z-index:55; top:20%; left:50%; transform:translateX(-50%); display:grid; gap:10px; padding:16px; border-radius:12px; background:#0a1c28ed; text-align:center; max-width:90%; }
+.replay-overlay b { color:#c5f58b; letter-spacing:2px; }
+.replay-overlay span { font-size:12px; }
+.touch-editor-toolbar { position:absolute; z-index:80; top:15%; left:5%; right:5%; display:flex; flex-wrap:wrap; justify-content:center; align-items:center; gap:12px; padding:12px; background:#0a1c28f5; border:1px solid #c5f58b; border-radius:12px; }
+.touch-controls[data-editing=true] { display:flex!important; z-index:70; }
+.touch-controls[data-editing=true] [data-control] { outline:2px dashed #c5f58b; cursor:move; pointer-events:auto; }
+.touch-specials { display:none; }
+@media (pointer:coarse), (max-width:900px) {
+ .touch-button { min-width:52px; min-height:52px; }
+ .touch-specials { position:absolute; z-index:27; display:flex; flex-wrap:wrap; justify-content:center; gap:4px; left:6px; right:6px; bottom:174px; pointer-events:none; }
+ .touch-specials button,.touch-specials select { pointer-events:auto; min-height:44px; border:1px solid #ffffff45; border-radius:8px; background:#102a36e8; color:white; padding:6px 9px; font-size:10px; touch-action:none; }
+ .touch-specials select { max-width:118px; }
+}
+@media (orientation:landscape) and (max-height:600px) {
+ .touch-specials { top:55px; bottom:auto; left:20%; right:20%; }
+ .touch-specials button,.touch-specials select { font-size:9px; padding:4px 6px; }
+ .touch-editor-toolbar { top:60px; font-size:12px; }
+}

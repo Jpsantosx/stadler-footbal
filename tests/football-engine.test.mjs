@@ -851,3 +851,73 @@ test('hidden/paused and isolated stalled frames never lower the render budget', 
   assert.deepEqual(parsePresentation({camera:'close',lighting:'day',automatic:false,radar:false}),
     {camera:'close',lighting:'day',automatic:false,radar:false});
 });
+
+import { firstTouchDistance, shotBalance, performSkill, releaseShot, supportPosition, registerGoal } from '../lib/football-engine.ts';
+import { createGoalReplay } from '../lib/football-replay.ts';
+import { parseControls, rumble, shotModifiers } from '../lib/football-controls.ts';
+
+test('first touch responds to incoming speed, movement and technique',()=>{
+ assert.ok(firstTouchDistance(32,60,15)>firstTouchDistance(10,60,0));
+ assert.ok(firstTouchDistance(32,60,15)>firstTouchDistance(32,95,15));
+ assert.ok(firstTouchDistance(300,30,30)<=1.5);
+});
+test('protection slows the carrier and positions ball away from nearest rival without immunity',()=>{
+ const s=match(),i=input(),p=s.players.find(p=>p.id===s.selectedId),q=s.players.find(q=>q.side!==p.side&&q.role!=='GK');
+ s.frozen=0;p.x=50;p.y=32;p.facingX=1;p.facingY=0;s.ball.owner=p.id;s.ball.x=50;s.ball.y=32;
+ q.x=49;q.y=32;for(const rival of s.players.filter(other=>other.side!==p.side&&other.id!==q.id))rival.x=10;
+ i.keys.add('KeyH');i.keys.add('KeyD');updateHuman(p,i,.1,'solo',1);updateBall(s,.1,false);
+ assert.equal(p.shielding,true);assert.ok(p.vx<8);assert.ok(s.ball.x>p.x);
+ assert.equal(p.controlShield<=1,true);
+});
+test('rainbow releases an airborne ball, consumes energy and blocks repeat skills',()=>{
+ const s=match(),p=s.players.find(p=>p.id===s.selectedId);s.frozen=0;s.ball.owner=p.id;
+ const before=p.stamina;assert.equal(performSkill(s,'home','rainbow'),true);
+ assert.equal(s.ball.owner,null);assert.ok(s.ball.vz>8);assert.ok(p.stamina<before);
+ s.ball.owner=p.id;assert.equal(performSkill(s,'home','rainbow'),false);
+});
+test('bicycle requires nearby airborne loose ball and cannot create shots while paused',()=>{
+ const s=match(),p=s.players.find(p=>p.id===s.selectedId);s.frozen=0;
+ assert.equal(performSkill(s,'home','bicycle'),false);
+ Object.assign(s.ball,{owner:null,x:p.x+1,y:p.y,z:2.3});s.paused=true;
+ assert.equal(performSkill(s,'home','bicycle'),false);s.paused=false;
+ assert.equal(performSkill(s,'home','bicycle'),true);assert.equal(p.action,'bicycle');assert.equal(s.lastShotStyle,'BICICLETA');assert.ok(s.ball.z>1);
+});
+test('lob, placed and power shots have distinct flight and power respects energy and charge',()=>{
+ const shoot=(kind,charge=.9,energy=100)=>{const s=match(),p=s.players.find(p=>p.id===s.selectedId);s.ball.owner=p.id;p.x=76;p.y=32;p.vx=p.vy=0;p.stamina=energy;s.shotCharge=charge;s.chargingShot=true;releaseShot(s,'home',kind);return s;};
+ const lob=shoot('lob'),placed=shoot('placed'),power=shoot('power');
+ assert.ok(lob.ball.vz>placed.ball.vz*2);assert.ok(Math.hypot(power.ball.vx,power.ball.vy)>Math.hypot(placed.ball.vx,placed.ball.vy));
+ assert.equal(power.lastShotStyle,'SUPERCHUTE');assert.notEqual(shoot('power',.2).lastShotStyle,'SUPERCHUTE');assert.notEqual(shoot('power',.9,10).lastShotStyle,'SUPERCHUTE');
+ const p=match().players[2];p.vx=0;p.vy=0;p.stamina=100;const good=shotBalance(p);p.vx=20;p.vy=20;p.stamina=15;assert.ok(shotBalance(p)<good);
+});
+test('collective support avoids blocked central lane and stays within role boundaries',()=>{
+ const s=match(),p=s.players.find(p=>p.side==='home'&&p.role==='MF'),owner=s.players.find(p=>p.side==='home'&&p.role==='FW');
+ owner.x=45;owner.y=32;p.x=60;p.y=32;s.ball.owner=owner.id;
+ for(const q of s.players.filter(q=>q.side==='away')){q.x=52;q.y=32;}
+ const target=supportPosition(s,p,owner,57,32,{min:30,max:72});
+ assert.ok(target.progress>=30&&target.progress<=72);assert.notEqual(target.y,32);
+});
+test('gamepad combo emits a skill instead of a normal pass and resets safely',()=>{
+ const d=createGamepadDriver(),p=mockPad();d.poll([p],'solo','playing',0);
+ padButton(p,6,true);d.poll([p],'solo','playing',16);padButton(p,0,true);
+ const frame=d.poll([p],'solo','playing',32);assert.equal(frame.inputs.home.shield,true);assert.deepEqual(frame.events,[{side:'home',action:'rainbow'}]);
+ d.reset();padButton(p,0,false);assert.deepEqual(d.poll([p],'solo','playing',48).events,[]);
+ assert.ok(padStick(.5,0,1.8).x>padStick(.5,0,.5).x);assert.deepEqual(padStick(.1,0,1.8),{x:0,y:0});
+ assert.equal(shotModifiers(true,true),'power');assert.equal(shotModifiers(false,true),'lob');
+});
+test('goal replay is bounded, preserves the goal frame and never changes the live score or clock',()=>{
+ const s=match(),r=createGoalReplay();s.frozen=0;
+ for(let n=0;n<240;n++){s.elapsed=n/30;s.ball.x=n/3;r.record(s,1/30);}
+ assert.equal(r.count,120);s.ball.x=101;registerGoal(s,'home',false);
+ const live=JSON.stringify({players:s.players,ball:s.ball,remaining:s.remaining,score:s.homeScore,rng:s.rng});
+ assert.equal(r.start(s),true);assert.equal(r.sample(.1).replayView,true);
+ assert.equal(JSON.stringify({players:s.players,ball:s.ball,remaining:s.remaining,score:s.homeScore,rng:s.rng}),live);
+ for(let n=0;n<230;n++)r.sample(.1);assert.equal(r.active,false);
+ r.reset();assert.equal(r.count,0);assert.equal(r.start(match()),false);
+});
+test('controller preferences sanitize corrupted storage; haptics degrade safely',async()=>{
+ const settings=parseControls({sensitivity:NaN,touchScale:900,layout:{shoot:{x:Infinity,y:-20}},touchShot:'bad'});
+ assert.equal(settings.sensitivity,1);assert.equal(settings.touchScale,1.25);assert.equal(settings.touchShot,'auto');assert.ok(Number.isFinite(settings.layout.shoot.x));
+ assert.equal(await rumble(null,true),false);assert.equal(await rumble({vibrationActuator:{playEffect:async()=>{throw Error('unsupported');}}},true),false);
+ let calls=0;const pad={vibrationActuator:{playEffect:async(type,p)=>{calls++;assert.equal(type,'dual-rumble');assert.ok(p.duration<=350);return 'complete';}}};
+ assert.equal(await rumble(pad,false),false);assert.equal(calls,0);assert.equal(await rumble(pad,true),true);
+});

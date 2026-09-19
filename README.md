@@ -146,3 +146,33 @@ As 172 avaliações individuais revisadas ficam em `data/player-ratings.json`. O
 - As configurações recebem os comandos de teclado sem movimentar os atletas por trás da janela.
 
 Validação desta revisão: testes determinísticos do motor, câmeras, controles simulados e ajuste de desempenho, além da compilação de produção. A verificação com gamepads físicos continua necessária no dispositivo do jogador.
+
+
+## Atualização Técnica e Criatividade
+
+- Domínio proporcional à velocidade de chegada, movimento do recebedor e técnica; proteger aproxima a bola do corpo, afasta-a do defensor próximo e reduz a velocidade. Drible curto usa a força do analógico e a proteção.
+- Companheiros buscam linhas de passe desobstruídas e espaço entre adversários, respeitando os limites da função e o impedimento. Um zagueiro cobre a saída do primeiro marcador.
+- Goleiros comprometidos com um mergulho não invertem instantaneamente a defesa; alcance vertical depende da pose. Rebotes preservam parte da força do chute.
+- Transições de poses amortecidas para corrida, domínio, chute, finta, chapéu e bicicleta.
+- Replay visual dos últimos quatro segundos, gravado a 30 Hz e reproduzido a 0,5×; câmera oposta em 3D, enquadramento próximo na alternativa 2D. Não avança o relógio nem aplica novamente gols, faltas ou desgaste. Pular: botão na tela, Espaço/Esc/Enter, confirmar/voltar/pausa no gamepad.
+- Configurações: sensibilidade do analógico, vibração opcional com teste, escala de toque entre 85% e 125% e editor de posição individual dos sete controles principais. As preferências ficam no navegador. Arrastar mantém a partida pausada e Concluir volta à pausa.
+
+### Combinações J1
+
+Segure os modificadores **antes** do botão de ação; mantenha o chute para carregar e solte para finalizar.
+
+| Lance | Teclado / mouse sobre o campo | Xbox | PlayStation | Nintendo padrão |
+| --- | --- | --- | --- | --- |
+| Proteger / condução curta | H + direção | LT + analógico | L2 + analógico | ZL + analógico |
+| Colocado | H + Espaço / esquerdo | LT+B | L2+○ | ZL+A |
+| Cavadinha | Shift + Espaço / esquerdo | RT+B | R2+○ | ZR+A |
+| Superchute | H+Shift + Espaço / esquerdo | LT+RT+B | L2+R2+○ | ZL+ZR+A |
+| Chapéu | H+F / H+direito, ou G | LT+A | L2+✕ | ZL+B |
+| Finta | H+R / meio, ou T | LT+X | L2+□ | ZL+Y |
+| Bicicleta | H+E / H+meio, ou B | LT+Y | L2+△ | ZL+X |
+
+Mouse: esquerdo chuta, direito passa, meio finta. WASD define movimento e direção. J2: Numpad 0 substitui H, Enter substitui Shift, L chuta, K faz chapéu com modificador, U finta e J bicicleta. Controles personalizados usam as ações correspondentes ao remapeamento, não os números fixos de botões.
+
+No celular, a faixa de jogadas oferece Proteger (segure), Chapéu, Finta e Bicicleta; o seletor define o estilo do próximo chute. Bicicleta exige bola solta entre 1,4 e 4 unidades de altura e alcance de 2,8 unidades, além de energia; não teletransporta o jogador. Superchute exige pelo menos 55% de carga e 18 de energia; caso contrário sai um chute comum. Nenhum lance garante gol. Chapéu deixa a bola disputável e tem intervalo entre usos.
+
+A vibração usa [GamepadHapticActuator](https://w3c.github.io/gamepad/#dom-gamepadhapticactuator-playeffect) quando exposto pelo navegador; erros ou ausência de suporte não interrompem a partida. Testes automatizados usam controles simulados. **Celulares e controles físicos não estavam disponíveis para validação**; o botão de teste ajuda a verificar o dispositivo real sem afirmar compatibilidade universal.

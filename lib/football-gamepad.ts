@@ -5,10 +5,10 @@ export type PadSample = { index: number; id: string; connected: boolean; mapping
   axes: readonly number[]; buttons: readonly { pressed: boolean; value: number }[] };
 export type PadProfile = { axisX: number; axisY: number; invertX: boolean; invertY: boolean; buttons: Record<PadAction, number> };
 export type PadProfiles = Record<string, PadProfile>;
-export type PadInput = { x: number; y: number; sprint: boolean };
+export type PadInput = { x: number; y: number; sprint: boolean; shield?: boolean };
 export type PadFamily = "xbox" | "playstation" | "nintendo" | "generic";
 export type PadInfo = { side: Side; index: number; id: string; family: PadFamily; usable: boolean; custom: boolean };
-export type PadEvent = { side: Side; action: "pass" | "through" | "shootStart" | "shootRelease" | "slide" | "steal" | "switch" | "pause" | "confirm" | "back" | "up" | "down" | "left" | "right" };
+export type PadEvent = { side: Side; action: "rainbow" | "feint" | "bicycle" | "pass" | "through" | "shootStart" | "shootRelease" | "slide" | "steal" | "switch" | "pause" | "confirm" | "back" | "up" | "down" | "left" | "right" };
 export const PAD_ACTIONS: PadAction[] = ["pass", "shoot", "through", "slide", "steal", "switch", "sprint", "pause"];
 export const STANDARD_PAD: PadProfile = { axisX: 0, axisY: 1, invertX: false, invertY: false,
   buttons: { pass: 0, shoot: 1, through: 3, slide: 2, steal: 6, switch: 4, sprint: 7, pause: 9 } };
@@ -31,11 +31,11 @@ export function padButtonLabel(family: PadFamily, action: PadAction) {
   return labels[family][action];
 }
 
-export function padStick(x: number, y: number) {
+export function padStick(x: number, y: number, sensitivity=1) {
   if (!Number.isFinite(x) || !Number.isFinite(y)) return { x: 0, y: 0 };
   const length = Math.hypot(x, y);
   if (length < .17) return { x: 0, y: 0 };
-  const force = Math.pow(Math.min(1, (length - .17) / .83), 1.12);
+  const force = Math.pow(Math.min(1, (length - .17) / .83), 1.12 / Math.max(.5, Math.min(1.8, Number.isFinite(sensitivity)?sensitivity:1)));
   return { x: x / length * force, y: y / length * force };
 }
 
@@ -58,7 +58,7 @@ type Slot = { id: string; index: number; armed: boolean; previous: boolean[]; co
 export function createGamepadDriver() {
   const slots: Array<Slot | null> = [null, null];
   return { reset() { for (const slot of slots) if (slot) slot.armed=false; },
-    poll(pads: readonly (PadSample | null)[], mode: GameMode, context: "playing" | "menu" | "blocked", now: number, profiles: PadProfiles = {}) {
+    poll(pads: readonly (PadSample | null)[], mode: GameMode, context: "playing" | "menu" | "blocked", now: number, profiles: PadProfiles = {}, sensitivity=1) {
       const live=pads.filter((p): p is PadSample => !!p?.connected);
       const disconnected: Side[] = [], events: PadEvent[] = [], infos: PadInfo[] = [];
       const inputs = { home: neutral(), away: neutral() };
@@ -82,7 +82,7 @@ export function createGamepadDriver() {
           PAD_ACTIONS.every(a=>profile.buttons[a]<pad.buttons.length);
         infos.push({side,index:pad.index,id:pad.id,family:padFamily(pad.id),usable,custom});
         const current=pad.buttons.map((_,n)=>pressed(pad,n));
-        const stick=padStick((pad.axes[profile.axisX]??0)*(profile.invertX?-1:1),(pad.axes[profile.axisY]??0)*(profile.invertY?-1:1));
+        const stick=padStick((pad.axes[profile.axisX]??0)*(profile.invertX?-1:1),(pad.axes[profile.axisY]??0)*(profile.invertY?-1:1),sensitivity);
         const tag=context+":"+mode;
         if(slot.context!==tag) { slot.context=tag;slot.armed=false;slot.direction=""; }
         if(!usable || context==="blocked") { slot.previous=current;slot.armed=false;continue; }
@@ -106,12 +106,17 @@ export function createGamepadDriver() {
           }
           slot.direction=direction;
         } else if(i===0 || mode==="local2p") {
-          inputs[side]={...stick,sprint:current[profile.buttons.sprint]??false};
+          inputs[side]={...stick,sprint:current[profile.buttons.sprint]??false,shield:current[profile.buttons.steal]??false};
           if(pad.mapping==="standard" && Math.hypot(stick.x,stick.y)<.05) {
             const dpad=padStick(Number(current[15]??false)-Number(current[14]??false),Number(current[13]??false)-Number(current[12]??false));
             inputs[side].x=dpad.x;inputs[side].y=dpad.y;
           }
-          for(const action of ["pass","through","slide","steal","switch"] as const) if(down(action))emit(action);
+          for(const action of ["pass","through","slide","steal","switch"] as const) if(down(action)) {
+            if(inputs[side].shield && action==='pass')emit('rainbow');
+            else if(inputs[side].shield && action==='through')emit('bicycle');
+            else if(inputs[side].shield && action==='slide')emit('feint');
+            else emit(action);
+          }
           if(down("shoot"))emit("shootStart");if(up("shoot"))emit("shootRelease");
         }
         slot.previous=current;

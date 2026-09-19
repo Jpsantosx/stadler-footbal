@@ -11,7 +11,7 @@ export function joystickVector(clientX: number, clientY: number, rect: { left: n
 }
 
 export function clearMatchInput(input: InputState, state: MatchState | null) {
-  input.keys.clear(); input.touchX = 0; input.touchY = 0; input.touchSprint = false;
+  input.keys.clear(); input.touchX = 0; input.touchY = 0; input.touchSprint = false; input.touchShield = false;
   input.controllers = {};
   if (!state) return;
   state.chargingShot = false; state.chargingAwayShot = false;

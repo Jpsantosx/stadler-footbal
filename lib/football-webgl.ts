@@ -622,7 +622,7 @@ export function createStadiumRenderer(
         else framing = stepCamera(framing, target, dt);
         cameraMode = presentation.camera;
         const position = broadcastCameraPose(framing, viewportAspect);
-        camera.position.set(position.x, position.height, position.z);camera.fov=position.fov;camera.zoom=1;
+        camera.position.set(position.x, position.height, state.replayView ? position.lookY*2-position.z : position.z);camera.fov=position.fov;camera.zoom=1;
         camera.lookAt(position.lookX, 0, position.lookY);
       }
       camera.updateProjectionMatrix(); camera.updateMatrixWorld();
