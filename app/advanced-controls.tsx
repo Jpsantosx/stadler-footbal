@@ -14,6 +14,10 @@ export default function AdvancedControls({value,onChange,onEdit,canEdit}:{value:
       <tr><td>Chapéu</td><td>H + F / clique direito · ou G</td><td>LT+A · L2+✕ · ZL+B</td></tr>
       <tr><td>Finta curta</td><td>H + R / botão do meio · ou T</td><td>LT+X · L2+□ · ZL+Y</td></tr>
       <tr><td>Bicicleta</td><td>H + E / H + botão do meio · ou B</td><td>LT+Y · L2+△ · ZL+X</td></tr>
+      <tr><td>Cruzamento alto</td><td>N / Jogadas +</td><td>RT+Y · R2+△ · ZR+X</td></tr>
+      <tr><td>Cruzamento rasteiro</td><td>M / Jogadas +</td><td>RT+X · R2+□ · ZR+Y</td></tr>
+      <tr><td>Tabelinha</td><td>Y / Jogadas +</td><td>RT+A · R2+✕ · ZR+B</td></tr>
+      <tr><td>Cabeceio / voleio</td><td>Espaço / esquerdo com bola no ar</td><td>B · ○ · A com bola no ar</td></tr>
     </tbody></table></div>
     <p>Bicicleta: bola solta no ar, perto do atleta. Superchute: carga de pelo menos 55% e 18 de energia. As jogadas podem falhar ou ser defendidas. Mouse funciona sobre o campo; WASD controla a direção.</p>
     <p>J2: Numpad 0 protege; Numpad 0 + L colocado; Enter + L cobertura; ambos + L superchute; Numpad 0 + K chapéu, + U finta, + J bicicleta. Em controles remapeados, as combinações seguem as ações BOTE, CORRER, PASSE e CHUTE.</p>

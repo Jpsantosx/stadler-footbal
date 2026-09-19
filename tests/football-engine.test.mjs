@@ -921,3 +921,133 @@ test('controller preferences sanitize corrupted storage; haptics degrade safely'
  let calls=0;const pad={vibrationActuator:{playEffect:async(type,p)=>{calls++;assert.equal(type,'dual-rumble');assert.ok(p.duration<=350);return 'complete';}}};
  assert.equal(await rumble(pad,false),false);assert.equal(calls,0);assert.equal(await rumble(pad,true),true);
 });
+
+// Player journey, training and connected match mechanics.
+import { crossBall, aerialStrike, oneTwoPass, setLiveTactics, tacticFor, substitutePlayer, footEfficiency,
+  kickBall, finishMatch, selectedIdForSide, performSkill as newSkill } from '../lib/football-engine.ts';
+import { recordReception, statsFor, passAccuracy, playerRating } from '../lib/football-match-detail.ts';
+import { createTraining, tickTraining, trainingHint, TRAINING_GATES } from '../lib/football-training.ts';
+import { newPlayerCareer, parsePlayerCareer, makePlayerCareerMatch, settlePlayerCareer, upgradeCareer,
+  nextPlayerSeason, playerCareerFixture, careerOverall, SKIN_COLORS, HAIR_COLORS } from '../lib/football-player-career.ts';
+const journeyDraft={name:'João Stadler',number:10,clubId:TEAMS[0].id,role:'FW',foot:'left',weakFoot:3,trait:'technical',
+  look:{skin:SKIN_COLORS[1],hair:HAIR_COLORS[0],style:'mohawk',height:185,celebration:'jump'}};
+function openField(){
+  const s=createMatch(TEAMS[0],TEAMS[1],'normal');s.frozen=0;
+  const p=s.players.find(p=>p.side==='home'&&p.role==='FW');
+  const receiver=s.players.find(q=>q.side==='home'&&q.role==='FW'&&q.id!==p.id);
+  for(const q of s.players){q.sentOff=q!==p&&q!==receiver;q.vx=0;q.vy=0;}
+  p.x=62;p.y=14;p.facingX=1;p.facingY=0;receiver.x=76;receiver.y=32;
+  // Keep two deep defenders so the receiving player is onside.
+  s.players.filter(q=>q.side==='away'&&q.role==='DF').slice(0,2).forEach((q,i)=>{q.sentOff=false;q.x=96;q.y=i?60:4;});
+  s.selectedId=p.id;Object.assign(s.ball,{owner:p.id,x:p.x+1,y:p.y});return {s,p,receiver};
+}
+test('preferred foot, weak-foot training and live pressure change effective play',()=>{
+  const {s,p}=openField();p.preferredFoot='right';p.weakFoot=1;
+  assert.equal(footEfficiency(p,p.x+20,p.y+5),1);
+  const weak=footEfficiency(p,p.x+20,p.y-5);assert.ok(weak<.8);
+  p.weakFoot=5;assert.ok(footEfficiency(p,p.x+20,p.y-5)>weak);
+  assert.equal(setLiveTactics(s,'home','attacking',1.4,1.3),false);
+  s.paused=true;assert.equal(setLiveTactics(s,'home','attacking',1.4,1.3),true);
+  assert.ok(tacticFor(s,'home').pressure>TACTICS.attacking.pressure);
+  assert.ok(tacticFor(s,'home').width>TACTICS.attacking.width);
+});
+test('high cross arrives airborne while a low cross stays low and targets a teammate',()=>{
+  const high=openField(),low=openField();
+  assert.equal(crossBall(high.s,high.p,false),true);assert.equal(crossBall(low.s,low.p,true),true);
+  assert.ok(high.s.ball.vz>10);assert.ok(low.s.ball.vz<1);
+  assert.equal(high.s.selectedId,high.receiver.id);assert.equal(high.s.passIntent.receiverId,high.receiver.id);
+  for(let i=0;i<60;i++)updateBall(high.s,1/120,false);
+  assert.ok(high.s.ball.z>2);assert.ok(high.s.ball.x>high.p.x);
+});
+test('aerial timing and positioning decide contact; header counts a received cross only once',()=>{
+  const {s,p,receiver}=openField();p.x=85;p.y=32;receiver.sentOff=true;
+  kickBall(s,receiver,p.x,p.y,25,'pass',11);
+  Object.assign(s.ball,{owner:null,x:p.x+.3,y:p.y,z:2.6,vz:-1});
+  assert.equal(aerialStrike(s,p,'header'),true);
+  assert.equal(statsFor(s,receiver).completed,1);assert.equal(statsFor(s,p).shots,1);
+  assert.equal(aerialStrike(s,p,'header'),false);
+  registerGoal(s,'home',false);assert.equal(statsFor(s,p).goals,1);assert.equal(statsFor(s,receiver).assists,1);
+  const blocked=openField();blocked.p.x=83;blocked.p.y=32;
+  const rival=blocked.s.players.find(q=>q.side==='away'&&q.role==='DF');rival.x=85;rival.y=32;rival.strength=95;
+  blocked.p.strength=50;Object.assign(blocked.s.ball,{owner:null,x:85,y:32,z:2.6,vz:-1});
+  assert.equal(aerialStrike(blocked.s,blocked.p,'header'),false);assert.equal(statsFor(blocked.s,blocked.p).shots,0);
+});
+test('one-two creates an attacking run and an AI return when controlling one career athlete',()=>{
+  const {s,p,receiver}=openField();p.x=55;p.y=32;receiver.x=60;receiver.y=38;s.lockedPlayerId=p.id;
+  assert.equal(oneTwoPass(s,p),true);assert.equal(selectedIdForSide(s,'home'),p.id);
+  const before=p.x;aiTarget(s,p,undefined,.15);assert.ok(p.x>before);
+  s.ball.owner=receiver.id;receiver.possessionTime=.5;
+  aiTarget(s,receiver,undefined,.01);
+  assert.equal(s.ball.owner,null);assert.equal(s.ball.lastPlayerId,receiver.id);assert.equal(s.oneTwo,undefined);
+  assert.equal(s.passIntent.receiverId,p.id);
+});
+test('completed passes, saves and assists are not duplicated after a deflection',()=>{
+  const {s,p,receiver}=openField();kickBall(s,p,receiver.x,receiver.y,25,'pass');
+  recordReception(s,receiver);recordReception(s,receiver);assert.equal(statsFor(s,p).completed,1);
+  assert.equal(passAccuracy(statsFor(s,p)),100);assert.equal(passAccuracy({passes:0,completed:0}),0);
+  const keeper=s.players.find(q=>q.side==='away'&&q.role==='GK');
+  kickBall(s,receiver,100,32,45,'shot');recordReception(s,keeper,false);recordReception(s,keeper,false);
+  assert.equal(statsFor(s,keeper).saves,1);
+  s.ball.lastPlayerId=receiver.id;s.ball.lastTouch='home';registerGoal(s,'home',false);
+  assert.equal(statsFor(s,p).assists,0);
+});
+test('substitutions preserve historical statistics, replace attributes and cannot re-enter or remove locked player',()=>{
+  const s=createMatch(TEAMS[0],TEAMS[1],'normal'),p=s.players.find(p=>p.side==='home'&&p.role==='FW');
+  const index=s.benches.home.findIndex(seed=>seed[3]!=='GK'),seed=s.benches.home[index];assert.ok(seed);
+  const previousId=p.squadId;statsFor(s,p).goals=1;p.stamina=9;
+  assert.equal(substitutePlayer(s,'home',p.id,index),false);s.paused=true;s.lockedPlayerId=p.id;
+  assert.equal(substitutePlayer(s,'home',p.id,index),false);s.lockedPlayerId=undefined;
+  assert.equal(substitutePlayer(s,'home',p.id,index),true);
+  const sub=s.players.find(q=>q.id===p.id);assert.equal(sub.name,seed[0]);assert.equal(sub.stamina,100);
+  assert.equal(sub.overall,seed[2]);assert.equal(s.substitutions.home,1);
+  assert.equal(s.detail.athletes[`home:${previousId}`].goals,1);assert.equal(statsFor(s,sub).goals,0);
+  assert.ok(!s.benches.home.some(seed=>(seed[7]??`${seed[0]}-${seed[1]}`)===previousId));
+});
+test('training repeats drills without advancing a match clock and gives a real bicycle timing window',()=>{
+  const s=createTraining('dribble'),p=s.players.find(p=>p.id===s.lockedPlayerId),remaining=s.remaining;
+  const idle={keys:new Set(),touchX:0,touchY:0,touchSprint:false};
+  for(let i=0;i<120;i++){updateMatch(s,idle,1/120,false);tickTraining(s);}
+  assert.equal(s.remaining,remaining);
+  for(const g of TRAINING_GATES){p.x=g.x;p.y=g.y;s.ball.owner=p.id;tickTraining(s);}
+  assert.equal(s.training.successes,1);assert.equal(s.training.resolved,true);
+  const bike=createTraining('bicycle');let ready=false;
+  for(let i=0;i<100;i++){
+    updateMatch(bike,idle,1/120,false);
+    if(trainingHint(bike).ready){ready=true;assert.equal(newSkill(bike,'home','bicycle'),true);tickTraining(bike);break;}
+  }
+  assert.equal(ready,true);assert.equal(bike.training.successes,1);
+  const penalty=createTraining('penalty');assert.equal(penalty.setPiece.kind,'penalty');assert.equal(penalty.setPiece.ready,true);
+});
+test('player career persists appearance, rewards completed fixtures once and makes upgrades affect match OVR',()=>{
+  const c=newPlayerCareer(journeyDraft,'test-athlete');assert.deepEqual(parsePlayerCareer(JSON.parse(JSON.stringify(c))),c);
+  assert.equal(parsePlayerCareer({...c,points:-1}),null);assert.equal(parsePlayerCareer({...c,look:{...c.look,skin:'invalid'}}),null);
+  const s=makePlayerCareerMatch(c),p=s.players.find(p=>p.squadId===c.id);
+  assert.equal(p.appearance.style,'mohawk');assert.equal(p.preferredFoot,'left');assert.equal(s.lockedPlayerId,p.id);
+  assert.equal(settlePlayerCareer(c,s),c);statsFor(s,p).goals=2;statsFor(s,p).assists=1;
+  s.homeScore=3;s.awayScore=0;finishMatch(s);
+  const result=settlePlayerCareer(c,s);assert.equal(result.appearances,1);assert.equal(result.goals,2);assert.ok(result.points>=2);
+  assert.equal(settlePlayerCareer(result,s),result);assert.ok(result.history[0].rating>=8);
+  let upgraded={...result,points:10};for(let i=0;i<5;i++)upgraded=upgradeCareer(upgraded,'shooting');
+  assert.ok(careerOverall(upgraded)>careerOverall(result));
+  assert.equal(makePlayerCareerMatch(upgraded).players.find(p=>p.squadId===c.id).shooting,upgraded.attributes.shooting);
+});
+test('full player season awards a league title and carries development into the next season',()=>{
+  let career=newPlayerCareer(journeyDraft,'season-player'),matches=0;
+  while(playerCareerFixture(career)&&matches<40){
+    const s=makePlayerCareerMatch(career);s.homeScore=3;s.awayScore=0;finishMatch(s);career=settlePlayerCareer(career,s);matches++;
+  }
+  assert.equal(matches,(career.rows.length-1)*2);assert.equal(career.titles.length,1);assert.equal(career.titles[0].season,1);
+  assert.equal(makePlayerCareerMatch(career),null);
+  const next=nextPlayerSeason(career);assert.equal(next.season,2);assert.equal(next.xp,career.xp);assert.equal(next.titles.length,1);assert.ok(playerCareerFixture(next));
+});
+test('career athlete stays selected and all tracked values remain finite through a simulated full match',()=>{
+  const c=newPlayerCareer({...journeyDraft,role:'MF'},'match-player'),s=makePlayerCareerMatch(c),id=s.lockedPlayerId;
+  const input={keys:new Set(),touchX:0,touchY:0,touchSprint:false};
+  for(let i=0;i<17000&&!s.finished;i++){
+    updateMatch(s,input,1/120,false);
+    if(!s.setPiece&&!s.frozen)assert.equal(selectedIdForSide(s,'home'),id);
+  }
+  assert.equal(s.finished,true);assert.ok(s.detail.athletes[`home:${c.id}`].seconds>30);
+  assert.ok(s.players.every(p=>Number.isFinite(p.x)&&Number.isFinite(p.y)&&Number.isFinite(p.stamina)));
+  assert.ok(Object.values(s.detail.athletes).every(r=>Number.isFinite(playerRating(r))&&r.completed<=r.passes));
+});

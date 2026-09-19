@@ -12,6 +12,11 @@ import { createRenderBudget } from "@/lib/football-performance";
 import { drawRadar } from "@/lib/football-radar";
 import { DEFAULT_PRESENTATION, parsePresentation, type PresentationSettings, type CameraMode, type StadiumLight } from "@/lib/football-camera";
 import { createStadiumRenderer } from "@/lib/football-webgl";
+import { CareerHub, TrainingHub, MatchCentre } from './football-hub';
+import { createTraining, tickTraining, resetTraining, trainingHint } from '@/lib/football-training';
+import { JOURNEY_KEY, parsePlayerCareer, makePlayerCareerMatch, settlePlayerCareer, type PlayerCareer } from '@/lib/football-player-career';
+import { setLiveTactics, substitutePlayer, type TrainingKind } from '@/lib/football-engine';
+import { playStadiumReaction } from '@/lib/football-audio';
 import CareerOffice from "./career-office";
 import AdvancedControls from './advanced-controls';
 import { createGoalReplay } from '@/lib/football-replay';
@@ -231,6 +236,24 @@ export default function FootballGame() {
     touchY: 0,
     touchSprint: false,
   });
+  const preparedMatchRef = useRef<MatchState|null>(null);
+  const journeyRef = useRef<PlayerCareer|null>(null);
+  const [journey,setJourney] = useState<PlayerCareer|null>(null);
+  const [journeySaveFailed,setJourneySaveFailed] = useState(false);
+  const [journeyOpen,setJourneyOpen] = useState(false);
+  const [trainingOpen,setTrainingOpen] = useState(false);
+  const [specialMode,setSpecialMode] = useState<'player'|'training'|null>(null);
+  const [trainingStatus,setTrainingStatus] = useState<ReturnType<typeof trainingHint>>(null);
+  const [matchCentre,setMatchCentre] = useState<MatchState|null>(null);
+  const saveJourney = useCallback((next:PlayerCareer) => {
+    journeyRef.current=next;setJourney(next);
+    try { localStorage.setItem(JOURNEY_KEY,JSON.stringify(next));setJourneySaveFailed(false); }
+    catch { setJourneySaveFailed(true); }
+  },[]);
+  useEffect(()=>{const timer=window.setTimeout(()=>{
+    try {const saved=parsePlayerCareer(JSON.parse(localStorage.getItem(JOURNEY_KEY)??'null'));journeyRef.current=saved;setJourney(saved);}catch{/* Invalid save opens the creator. */}
+  },0);return()=>window.clearTimeout(timer);},[]);
+  const openMatchCentre = () => { const state=engineRef.current;if(state){state.paused=true;clearMatchInput(inputRef.current,state);setMatchCentre(structuredClone(state));} };
   const skipReplay = () => {replayRef.current.skip();setReplaying(false);clearMatchInput(inputRef.current,engineRef.current);gamepadDriverRef.current?.reset();};
   const actionsRef = useRef<GameActions>({
     pass: () => undefined,
@@ -506,6 +529,8 @@ export default function FootballGame() {
     const state = engineRef.current;
     if (!state) return;
     resultRecordedRef.current = true;
+    if (state.careerFixture && journeyRef.current) { saveJourney(settlePlayerCareer(journeyRef.current,state)); return; }
+    if (state.training) return;
     if (competitionMode === "league" || competitionMode === "career") {
       setLeagueRows((current) =>
         simulateLeagueRound(
@@ -540,7 +565,7 @@ export default function FootballGame() {
         };
       });
     }
-  }, [competitionMode, screen, leagueRows]);
+  }, [competitionMode, screen, leagueRows, saveJourney]);
 
   const playTone = useCallback(
     (kind: "kick" | "goal" | "whistle" | "tackle") => {
@@ -550,6 +575,7 @@ export default function FootballGame() {
         const audio = audioContextRef.current ?? new AudioCtor();
         audioContextRef.current = audio;
         if (audio.state === "suspended") void audio.resume();
+        playStadiumReaction(audio,kind);
         const now = audio.currentTime;
         const notes =
           kind === "goal"
@@ -597,21 +623,22 @@ export default function FootballGame() {
 
   const startMatch = useCallback(() => {
     if (
-      competitionMode === "career" &&
+      !preparedMatchRef.current && competitionMode === "career" &&
       ensureManagement(career).management.status === "sacked"
     ) {
       setMarketOpen(true);
       return;
     }
-    const matchHome = TEAMS[homeIndex];
+    const prepared = preparedMatchRef.current;
+    const matchHome = prepared?.homeTeam ?? TEAMS[homeIndex];
     const validOpponentPool = availableAwayTeams;
-    const matchAway =
+    const matchAway = prepared?.awayTeam ??
       validOpponentPool.find((team) => team.id === TEAMS[awayIndex]?.id) ??
       validOpponentPool[0];
     if (!matchAway) return;
     const safeAwayIndex = TEAMS.findIndex((team) => team.id === matchAway.id);
     if (safeAwayIndex !== awayIndex) setAwayIndex(safeAwayIndex);
-    const next = createMatch(
+    const next = prepared ?? createMatch(
       matchHome,
       matchAway,
       difficulty,
@@ -626,7 +653,11 @@ export default function FootballGame() {
         ? careerOpponentSquad(career, matchAway)
         : undefined,
     );
-    next.cupRound = competitionMode === "cup" ? cupRound : null;
+    preparedMatchRef.current=null;
+    if (!prepared) next.cupRound = competitionMode === "cup" ? cupRound : null;
+    if(prepared){setHomeIndex(TEAMS.findIndex(t=>t.id===next.homeTeam.id));setAwayIndex(TEAMS.findIndex(t=>t.id===next.awayTeam.id));setGameMode('solo');}
+    setSpecialMode(next.training?'training':next.careerFixture?'player':null);
+    setTrainingStatus(trainingHint(next));setJourneyOpen(false);setTrainingOpen(false);setMatchCentre(null);
     const selected = getPlayer(next, next.selectedId);
     const selectedAway = getPlayer(next, next.selectedAwayId);
     replayRef.current.reset();setReplaying(false);
@@ -684,7 +715,14 @@ export default function FootballGame() {
     setGameScreen,
   ]);
 
+  const launchCareerMatch = () => {
+    const career=journeyRef.current;if(!career)return;
+    const match=makePlayerCareerMatch(career,difficulty);if(!match)return;
+    preparedMatchRef.current=match;startMatch();
+  };
+  const launchTraining = (kind:TrainingKind) => {preparedMatchRef.current=createTraining(kind,homeTeam);startMatch();};
   const goToMenu = useCallback(() => {
+    setSpecialMode(null);setTrainingStatus(null);setMatchCentre(null);
     const demo = createMatch(
       TEAMS[homeIndex],
       TEAMS[awayIndex],
@@ -766,6 +804,7 @@ export default function FootballGame() {
     let renderQuality = qualityRef.current;
     let requestedQuality = qualityRef.current;
     const gamepads = createGamepadDriver();gamepadDriverRef.current=gamepads;
+    let previousCrowdCue="";
     let controllerDigest="";
     let controllerError="";
     let pageFocused=true;
@@ -830,11 +869,11 @@ export default function FootballGame() {
             const seat=frame.infos.find(i=>i.side===event.side);const pad=pads.find(p=>p?.index===seat?.index);
             void rumble(pad,controlsRef.current.vibration,event.action==='bicycle'?.65:.35,100);
           }
-          if(event.action==='rainbow'||event.action==='feint'||event.action==='bicycle')action.skill(event.action,event.side);
+          if(event.action==='rainbow'||event.action==='feint'||event.action==='bicycle'||event.action==='crossHigh'||event.action==='crossLow'||event.action==='oneTwo')action.skill(event.action,event.side);
           else if(event.action==="pass"||event.action==="through")action.pass(event.side,event.action==="through");
           else if(event.action==="shootStart") {
             const owner=getPlayer(state,state.ball.owner);
-            if(owner?.side!==event.side && !state.setPiece)action.steal(event.side);
+            if(owner?.side!==event.side && !state.setPiece && state.ball.z<.6)action.steal(event.side);
             else action.shootStart(event.side);
           }
           else if(event.action==="shootRelease")action.shootRelease(event.side);
@@ -887,6 +926,7 @@ export default function FootballGame() {
     resize();
 
     const updateHud = (state: MatchState) => {
+      setTrainingStatus(trainingHint(state));
       const selected = getPlayer(state, state.selectedId);
       const selectedAway = getPlayer(state, state.selectedAwayId);
       const aim=movementIntent(inputRef.current,"home",state.gameMode);
@@ -945,6 +985,7 @@ export default function FootballGame() {
               if(!demo)replayRef.current.record(state,1/120);
               const goalsBefore=state.homeScore+state.awayScore;
               updateMatch(state, inputRef.current, 1 / 120, demo);
+              if(state.training)tickTraining(state);
               accumulator -= 1 / 120;
               if(state.homeScore+state.awayScore!==goalsBefore){accumulator=0;break;}
             }
@@ -968,7 +1009,7 @@ export default function FootballGame() {
         ) {
           if (screenRef.current === "playing") {
             playTone("goal");
-            if(replayRef.current.start(state)){setReplaying(true);clearMatchInput(inputRef.current,state);gamepads.reset();}
+            if(!state.training&&replayRef.current.start(state)){setReplaying(true);clearMatchInput(inputRef.current,state);gamepads.reset();}
             try{for(const pad of navigator.getGamepads?.()??[])if(pad?.connected)void rumble(pad,controlsRef.current.vibration,.8,300);}catch{/* Unsupported gamepads. */}
           }
           previousHomeScore = state.homeScore;
@@ -989,6 +1030,10 @@ export default function FootballGame() {
           playTone("whistle");
         }
         previousSetPiece = currentSetPiece;
+        if(state.message!==previousCrowdCue){
+          if(screenRef.current==='playing' && audioEnabledRef.current && audioContextRef.current && /DEFESA|ESPALMA|TRAVESSÃO|TRAVE/.test(state.message))playStadiumReaction(audioContextRef.current,'save');
+          previousCrowdCue=state.message;
+        }
 
         if (state.finished && screenRef.current === "playing") {
           setFinalStats({ ...state.stats });
@@ -1066,6 +1111,9 @@ export default function FootballGame() {
           }
           return;
         }
+        if(state.ball.owner===null && state.ball.z>.6){
+          if(performSkill(state,side,state.ball.z>2.15?'header':'volley'))playTone('kick');return;
+        }
         const owner = getPlayer(state, state.ball.owner);
         if (
           owner?.id === selectedIdForSide(state, side) &&
@@ -1141,6 +1189,9 @@ export default function FootballGame() {
       if (event.repeat) return;
       const localTwoPlayer = engineRef.current?.gameMode === "local2p";
       const keys=inputRef.current.keys;
+      if(event.code==='KeyN'){event.preventDefault();actionsRef.current.skill('crossHigh');return;}
+      if(event.code==='KeyM'){event.preventDefault();actionsRef.current.skill('crossLow');return;}
+      if(event.code==='KeyY'){event.preventDefault();actionsRef.current.skill('oneTwo');return;}
       if(event.code==='KeyG'||(keys.has('KeyH')&&event.code==='KeyF')){event.preventDefault();actionsRef.current.skill('rainbow');return;}
       if(event.code==='KeyT'||(keys.has('KeyH')&&event.code==='KeyR')){event.preventDefault();actionsRef.current.skill('feint');return;}
       if(event.code==='KeyB'||(keys.has('KeyH')&&event.code==='KeyE')){event.preventDefault();actionsRef.current.skill('bicycle');return;}
@@ -1457,7 +1508,10 @@ export default function FootballGame() {
   };
 
   const restart = () => {
-    startMatch();
+    const state=engineRef.current;
+    if(state?.training){preparedMatchRef.current=createTraining(state.training.kind,state.homeTeam);startMatch();}
+    else if(state?.careerFixture)launchCareerMatch();
+    else startMatch();
   };
 
   const possessionTotal =
@@ -1516,8 +1570,8 @@ export default function FootballGame() {
               </div>
               <strong>{hud.homeScore}</strong>
               <div className="match-clock">
-                <span>{hud.half}º TEMPO</span>
-                <b>{formatTime(hud.remaining)}</b>
+                <span>{specialMode==='training'?'TREINO LIVRE':`${hud.half}º TEMPO`}</span>
+                <b>{specialMode==='training'?'∞':formatTime(hud.remaining)}</b>
               </div>
               <strong>{hud.awayScore}</strong>
               <div className="score-team score-team--away" style={{borderBottomColor:awayTeam.primary}}>
@@ -1538,7 +1592,7 @@ export default function FootballGame() {
               <div><span><i />{homeTeam.short}</span><span>{awayTeam.short}<i /></span></div>
             </div>}
             {!hud.setPieceKind && <div className="mobile-player-readout">{hud.playerNumber} · {hud.playerName}<span>OVR {hud.playerOverall}</span></div>}
-            {hud.setPieceKind && (
+            {hud.setPieceKind && specialMode!=='training' && (
               <div
                 className="set-piece-hud"
                 data-ready={hud.setPieceReady}
@@ -1805,14 +1859,16 @@ export default function FootballGame() {
           </>
         )}
 
+        {trainingStatus&&screen==='playing'&&<div className="training-overlay" data-ready={trainingStatus.ready} role="status"><span>TREINO · {trainingStatus.successes} acertos / {trainingStatus.attempts} tentativas</span><strong>{trainingStatus.text}</strong><button onClick={()=>{const state=engineRef.current;if(state){clearMatchInput(inputRef.current,state);resetTraining(state);replayRef.current.reset();setReplaying(false);}}}>Repetir tentativa</button></div>}
         {replaying&&<div className="replay-overlay" role="status"><b>REPLAY DO GOL · 0,5×</b><span>Câmera alternativa</span><button type="button" onClick={skipReplay}>Pular replay · Espaço / A / ✕</button></div>}
         {editingTouch&&<div className="touch-editor-toolbar"><strong>Arraste cada controle até a posição desejada</strong><button type="button" onClick={()=>saveControls({...controlsRef.current,layout:{}})}>Restaurar</button><button type="button" onClick={()=>{editingTouchRef.current=false;setEditingTouch(false);dragControlRef.current=null;clearMatchInput(inputRef.current,engineRef.current);setPaused(true);}}>Concluir</button></div>}
         {screen==='playing'&&!replaying&&!editingTouch&&<div className="touch-specials">
           <button type="button" onPointerDown={e=>{e.currentTarget.setPointerCapture(e.pointerId);inputRef.current.touchShield=true;}} onPointerUp={()=>{inputRef.current.touchShield=false;}} onPointerCancel={()=>{inputRef.current.touchShield=false;}} onLostPointerCapture={()=>{inputRef.current.touchShield=false;}}>Proteger</button>
           <button type="button" onClick={()=>actionsRef.current.skill('rainbow')}>Chapéu</button><button type="button" onClick={()=>actionsRef.current.skill('feint')}>Finta</button><button type="button" onClick={()=>actionsRef.current.skill('bicycle')}>Bicicleta</button>
+          <details className="aerial-controls"><summary>Jogadas +</summary><div><button onClick={()=>actionsRef.current.skill('crossHigh')}>Cruz. alto · N</button><button onClick={()=>actionsRef.current.skill('crossLow')}>Rasteiro · M</button><button onClick={()=>actionsRef.current.skill('oneTwo')}>Tabelinha · Y</button><button onClick={()=>actionsRef.current.skill('header')}>Cabeceio</button><button onClick={()=>actionsRef.current.skill('volley')}>Voleio</button></div></details>
           <select aria-label="Tipo de chute no celular" value={controls.touchShot} onChange={e=>saveControls({...controlsRef.current,touchShot:e.target.value as ShotKind})}><option value="auto">Chute normal</option><option value="placed">Colocado</option><option value="lob">Cavadinha</option><option value="power">Superchute</option></select>
         </div>}
-        {hud.message && screen === "playing" && (
+        {hud.message && screen === "playing" && specialMode!=='training' && (
           <div className="match-message" data-set-piece={hud.setPieceKind !== null} role="status">
             {hud.message}
           </div>
@@ -1887,6 +1943,7 @@ export default function FootballGame() {
                   </span>
                 </button>
               </nav>
+              <div className="new-mode-buttons"><button onClick={()=>setJourneyOpen(true)}><span>CARREIRA DE JOGADOR</span><small>{journey?`${journey.name} · continuar jornada`:'Crie seu craque e conquiste títulos'}</small></button><button onClick={()=>setTrainingOpen(true)}><span>CENTRO DE TREINO</span><small>Dribles, faltas, pênaltis e bicicletas</small></button></div>
 
               {(competitionMode === "league" ||
                 competitionMode === "career") && (
@@ -2467,8 +2524,11 @@ export default function FootballGame() {
                   <b>{finalStats.awayCards}</b>
                 </div>
               </div>
+              {specialMode==='player'&&journey?.history[0]&&<p className="career-reward">Nota {journey.history[0].rating.toFixed(1)} · +{journey.history[0].xp} XP · {journey.points} pontos para evoluir</p>}
+              <button className="secondary-button" onClick={openMatchCentre}>ANÁLISE COMPLETA E MAPA DE CALOR</button>
+              {specialMode==='player'&&<button className="play-button" onClick={()=>{goToMenu();setJourneyOpen(true);}}>VOLTAR À MINHA CARREIRA</button>}
               <div className="finish-actions">
-                {competitionMode === "friendly" && <button type="button" className="play-button" onClick={restart}>
+                {competitionMode === "friendly" && !specialMode && <button type="button" className="play-button" onClick={restart}>
                   <RotateCcw size={19} /> REVANCHE
                 </button>}
                 <button
@@ -2702,7 +2762,7 @@ export default function FootballGame() {
       </Dialog>
 
       <Dialog
-        open={paused && screen === "playing"}
+        open={paused && screen === "playing" && !matchCentre}
         onOpenChange={(open) => {
           if (!open) resume();
         }}
@@ -2770,6 +2830,8 @@ export default function FootballGame() {
               </section>
             )}
           </div>
+          <button type="button" className="secondary-button" onClick={openMatchCentre}>TÁTICAS, SUBSTITUIÇÕES E ESTATÍSTICAS</button>
+          <p className="hub-note">N: cruzamento alto · M: rasteiro · Y: tabelinha · Chute com a bola no ar: cabeceio / voleio.</p>
           <button type="button" className="play-button" onClick={resume}>
             <Play fill="currentColor" size={19} /> CONTINUAR
           </button>
@@ -2781,6 +2843,9 @@ export default function FootballGame() {
           </button>
         </DialogContent>
       </Dialog>
+      <CareerHub open={journeyOpen} onOpenChange={setJourneyOpen} career={journey} onSave={saveJourney} onPlay={launchCareerMatch} saveFailed={journeySaveFailed}/>
+      <TrainingHub open={trainingOpen} onOpenChange={setTrainingOpen} onPlay={launchTraining}/>
+      {matchCentre&&<MatchCentre state={matchCentre} onClose={()=>setMatchCentre(null)} onTactics={(side,tactic,pressure,width)=>{const state=engineRef.current;if(state&&setLiveTactics(state,side,tactic,pressure,width))setMatchCentre(structuredClone(state));}} onSub={(side,id,index)=>{const state=engineRef.current;if(!state)return false;const changed=substitutePlayer(state,side,id,index);setMatchCentre(structuredClone(state));return changed;}}/>}
     </main>
   );
 }

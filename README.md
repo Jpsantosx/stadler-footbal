@@ -5,6 +5,29 @@ Simulador independente de futebol 8×8 para navegador, em React, TypeScript e Th
 - [Jogar na Vercel](https://stadler-footbal.vercel.app)
 - [Código no GitHub](https://github.com/Jpsantosx/stadler-footbal)
 
+## Carreira de jogador, treino e análise da partida
+
+- **Carreira de jogador:** botão próprio no menu. Crie nome, número, clube, posição (atacante, meia ou defensor), pé dominante, estilo, tom de pele, cabelo, altura e comemoração. O controle permanece no atleta criado; **F / passe** ou **Q** pede a bola quando um companheiro encontra uma linha livre.
+- **Evolução:** partidas concluídas rendem XP por participação, avaliação, gols, assistências e resultado. Cada 100 XP libera um ponto; atributos custam um ponto e pé fraco custa três. Os novos valores alteram o atleta da partida seguinte. O overall usa pesos da posição, com atributos limitados a 95.
+- **Temporadas e títulos:** calendário completo da liga, classificação, histórico de resultados, sala de troféus e novas temporadas preservando o progresso. Um resultado só pode ser registrado uma vez. Save separado da carreira de treinador em `stadler-player-career-v1`, neste navegador; não há sincronização na nuvem.
+- **Treino:** circuito de três zonas com bola, faltas com barreira, pênaltis e bolas levantadas para bicicletas. Dicas de mira, faixa de força e janela de contato, contagem de acertos, repetição automática e botão de reinício. Treino não encerra pelo relógio nem concede XP de partidas oficiais.
+- **Jogo aéreo:** cruzamentos altos e rasteiros, cabeceios e voleios com altura, proximidade, posição relativa ao defensor, força e perfil aéreo. A IA também disputa bolas aéreas. Uma tabelinha cria a corrida do passador e permite a devolução; na carreira, o companheiro tenta devolver pela linha livre.
+- **Personalidade:** pé dominante e pé fraco influenciam precisão e potência, e perfis técnico, aéreo, veloz e potente mudam atributos ou execução. Perfis dos elencos existentes são estimativas para a simulação, não uma base factual de características reais.
+- **Central da partida:** na pausa, altere postura, pressão e largura e faça até cinco substituições. Reservas entram com seus próprios atributos e energia completa; expulsos e o atleta da carreira não podem sair por essa ação, e substituídos não retornam. A pressão adicional consome energia.
+- **Estatísticas:** passes tentados/completos e precisão, finalizações, gols, assistências, defesas, duelos ganhos, distância, tempo ativo, notas e mapa de calor individual. As estatísticas do atleta substituído são preservadas.
+- **Estádio:** camadas sintetizadas de torcida para gols e defesas, sons de impacto e três comemorações, com personalização visível no 3D e na apresentação Canvas.
+
+| Jogada | Teclado J1 / mouse | Xbox | PlayStation | Nintendo padrão |
+| --- | --- | --- | --- | --- |
+| Cruzamento alto | N | RT + Y | R2 + △ | ZR + X |
+| Cruzamento rasteiro | M | RT + X | R2 + □ | ZR + Y |
+| Tabelinha | Y; F para devolver | RT + A | R2 + ✕ | ZR + B |
+| Cabeceio / voleio contextual | Espaço / clique esquerdo com bola no ar | B | ○ | A |
+
+No celular, abra **Jogadas +** para cruzamentos, tabelinha, cabeceio ou voleio. A bicicleta mantém **B** no teclado e **LT + Y / L2 + △ / ZL + X** nos controles. Nos controles remapeados, as novas combinações são CORRER + ENFIADA / CARRINHO / PASSE.
+
+Validação: 71 testes determinísticos, incluindo uma partida completa com atleta fixo, uma temporada completa, entrega de título, evolução, saves inválidos, contagem de passes/assistências, disputa aérea e substituições. Testes no navegador complementam a compilação de produção; gamepads físicos e aparelhos móveis reais dependem de validação no dispositivo.
+
 ## A atualização
 
 - **Estádio 3D:** gramado procedural de 2048×2048, faixas de corte, desgaste, sombras, iluminação dinâmica, arquibancadas, torcida, traves e redes. Jogadores articulados com ciclos contínuos de corrida, chute, domínio, carrinho e mergulho. Canvas 2D permanece como alternativa se WebGL não estiver disponível.

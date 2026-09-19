@@ -1,3 +1,4 @@
+import { TRAINING_GATES } from "./football-training";
 import { cameraTarget, stepCamera, DEFAULT_PRESENTATION, type PresentationSettings, type CameraFrame } from "./football-camera";
 import { athletePose, createLocomotion, type Locomotion } from "./football-animation";
 import { celebrationParticle, fireworkParticle, celebrationPose } from "./football-presentation";
@@ -446,7 +447,7 @@ function drawPlayer(
 ) {
   const p = project(view, player.x, player.y);
   const depthScale = 0.78 + (player.y / FIELD_H) * 0.28;
-  const size = clamp(view.height / 48, 8, 14) * depthScale;
+  const size = clamp(view.height / 48, 8, 14) * depthScale * (player.appearance?.height??180)/180;
   const speed = Math.hypot(player.vx, player.vy);
   let motion = playerMotions.get(player);
   if (!motion) { motion=createLocomotion(player);playerMotions.set(player,motion); }
@@ -554,13 +555,13 @@ function drawPlayer(
   ctx.lineTo(size*.42-swingX+kick*player.facingX,size*.82-swingY+kick*player.facingY);
   ctx.stroke();
 
-  ctx.strokeStyle = "#e8ad7d";
+  ctx.strokeStyle = player.appearance?.skin ?? "#e8ad7d";
   ctx.lineWidth = Math.max(1.6, size * 0.18);
   ctx.beginPath();
   ctx.moveTo(-size * 0.48, -size * 0.55);
-  ctx.lineTo(-size * 0.72 - player.facingY * size * 0.12 - swingX*.4, -size*.05-swingY*.5);
+  ctx.lineTo(-size * 0.72 - player.facingY * size * 0.12 - swingX*.4, -size*.05-swingY*.5+(player.action==="celebrate"&&player.actionTimer>0?-size*1.3:0));
   ctx.moveTo(size * 0.48, -size * 0.55);
-  ctx.lineTo(size * 0.72 + player.facingY * size * 0.12 + swingX*.4, -size*.05+swingY*.5);
+  ctx.lineTo(size * 0.72 + player.facingY * size * 0.12 + swingX*.4, -size*.05+swingY*.5+(player.action==="celebrate"&&player.actionTimer>0&&player.appearance?.celebration!=="point"?-size*1.3:0));
   ctx.stroke();
 
   if (player.role !== "GK") {
@@ -672,13 +673,13 @@ function drawPlayer(
     ctx.stroke();
   }
 
-  ctx.fillStyle = "#f0bc8b";
+  ctx.fillStyle = player.appearance?.skin ?? "#f0bc8b";
   ctx.beginPath();
   ctx.arc(0, -size * 1.15, size * 0.34, 0, Math.PI * 2);
   ctx.fill();
-  ctx.fillStyle = "#17191c";
+  ctx.fillStyle = player.appearance?.style === "bald" ? (player.appearance.skin) : player.appearance?.hair ?? "#17191c";
   ctx.beginPath();
-  ctx.arc(0, -size * 1.27, size * 0.31, Math.PI, Math.PI * 2);
+  ctx.ellipse(0,-size*1.27,size*(player.appearance?.style==="mohawk"?.13:.31),size*.31,0,Math.PI,Math.PI*2);
   ctx.fill();
 
   ctx.fillStyle = kitSecondary;
@@ -1066,6 +1067,9 @@ export function drawScene(
   drawStadium(ctx, view, quality, presentation.lighting);
   drawField(ctx, view, quality, state);
   drawPitchWear(ctx, view, state);
+  if(state.training?.kind==='dribble'){
+    const gate=TRAINING_GATES[state.training.checkpoint];if(gate){const point=project(view,gate.x,gate.y);ctx.strokeStyle='#b5ff6a';ctx.lineWidth=3;ctx.beginPath();ctx.ellipse(point.x,point.y,20,12,0,0,Math.PI*2);ctx.stroke();ctx.fillStyle='#ecffdd';ctx.font='bold 14px Arial';ctx.textAlign='center';ctx.fillText(String(state.training.checkpoint+1),point.x,point.y-17);}
+  }
   drawDefensiveCue(ctx, view, state, quality);
   if (quality !== "performance") drawBallTrail(ctx, view, state.trail);
   const sortedPlayers = state.players

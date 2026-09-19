@@ -39,6 +39,13 @@ export function athletePose(p: Player, m: Locomotion, dt: number) {
   if(p.actionTimer>0 && p.action==='bicycle') {const t=clamp(1-p.actionTimer/.85,0,1);lean=-Math.sin(t*Math.PI)*1.65;bob+=Math.sin(t*Math.PI)*1.2;stride[0]=1.3;stride[1]=-1.4;arms[0]=arms[1]=-.9;}
   if(p.actionTimer>0 && p.action==='rainbow'){knees[0]=1.1;knees[1]=.9;bob+=Math.sin(clamp(1-p.actionTimer/.62,0,1)*Math.PI)*.2;}
   if(p.actionTimer>0 && p.action==='feint')bank+=Math.sin(clamp(1-p.actionTimer/.4,0,1)*Math.PI)*.3;
+  if(p.actionTimer>0 && p.action==='header'){const t=clamp(1-p.actionTimer/.65,0,1);bob+=Math.sin(t*Math.PI)*.65;lean+=Math.sin(t*Math.PI)*.36;arms[0]=arms[1]=-.8;}
+  if(p.actionTimer>0 && p.action==='volley'){const t=clamp(1-p.actionTimer/.65,0,1);stride[1]=-1.5*Math.sin(t*Math.PI);knees[1]=.2;lean=-.35;arms[0]=-.9;}
+  if(p.actionTimer>0 && p.action==='celebrate'){
+    const style=p.appearance?.celebration ?? (['wings','jump','point'] as const)[p.id%3];
+    arms[0]=style==='point'?-2.7:-1.7;arms[1]=style==='point'?.3:-1.7;elbows[0]=elbows[1]=-.1;
+    if(style==='jump')bob+=Math.abs(Math.sin(p.actionTimer*6))*.7;
+  }
   if(p.shielding){arms[0]=-.9;arms[1]=.6;lean+=.08;}
   const raw=[...stride,...knees,...arms,...elbows,bob,lean,bank];
   if(!m.poses)m.poses=[...raw];

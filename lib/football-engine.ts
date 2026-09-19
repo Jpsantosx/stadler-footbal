@@ -1,6 +1,7 @@
 import catalog from "../data/football-catalog.json" with { type: "json" };
 import { beginTitleCelebration, resolveShootout, type TitleCelebration, type Shootout } from "./football-presentation.ts";
 import { createPitchWear, updatePitchWear, type PitchWear } from "./football-pitch.ts";
+import { recordKick, recordReception, recordGoal, trackAthletes, statsFor, type MatchDetail } from "./football-match-detail.ts";
 export type Side = "home" | "away";
 export type Role = "GK" | "DF" | "MF" | "FW";
 export type Screen = "menu" | "playing" | "celebrating" | "finished";
@@ -147,8 +148,15 @@ export type MarketEntry = {
 };
 
 export type ShotKind = "auto" | "placed" | "power" | "lob";
-export type SkillKind = "rainbow" | "feint" | "bicycle";
+export type SkillKind = "rainbow" | "feint" | "bicycle" | "crossHigh" | "crossLow" | "header" | "volley" | "oneTwo";
+export type PlayerLook = { skin: string; hair: string; style: "short" | "mohawk" | "bald"; height: number; celebration: "wings" | "jump" | "point" };
+export type TrainingKind = "dribble" | "freeKick" | "penalty" | "bicycle";
+export type TrainingSession = { kind: TrainingKind; attempts: number; successes: number; started: number; resolved: boolean; checkpoint: number; baselineGoals: number; feedback: string; next: number };
 export type Player = {
+  preferredFoot?: "right" | "left";
+  weakFoot?: number;
+  trait?: "technical" | "aerial" | "speed" | "power";
+  appearance?: PlayerLook;
   shielding?: boolean;
   skillCooldown?: number;
   firstTouch?: number;
@@ -162,7 +170,7 @@ export type Player = {
   strength: number;
   endurance: number;
   actionTimer: number;
-  action: "none" | "pass" | "shot" | "control" | "rainbow" | "feint" | "bicycle";
+  action: "none" | "pass" | "shot" | "control" | "rainbow" | "feint" | "bicycle" | "header" | "volley" | "celebrate";
   id: number;
   side: Side;
   role: Role;
@@ -259,6 +267,15 @@ export type MatchStats = {
 };
 
 export type MatchState = {
+  detail?: MatchDetail;
+  lockedPlayerId?: number;
+  careerFixture?: string;
+  training?: TrainingSession;
+  liveTactics?: Partial<Record<Side, { pressure: number; width: number }>>;
+  benches?: Record<Side, SquadSeed[]>;
+  substitutions?: Record<Side, number>;
+  oneTwo?: { runner: number; receiver: number; x: number; y: number; expires: number };
+  requestCooldown?: number;
   goalFrame?: { players: Player[]; ball: Ball; elapsed: number };
   replayView?: boolean;
   passIntent: { receiverId: number; x: number; y: number; expires: number } | null;
@@ -691,6 +708,9 @@ export function buildPlayers(
       const attributes = attributeProfile(seed, naturalRole);
       const px = side === "home" ? x : FIELD_W - x;
       players.push({
+        preferredFoot: seedFromName(name) % 4 === 0 ? "left" : "right",
+        weakFoot: 2 + seedFromName(name) % 4,
+        trait: (["technical", "aerial", "speed", "power"] as const)[seedFromName(name) % 4],
         possessionTime: 0,
         squadId: seed[7] ?? `${name}-${number}`,
         mass: seed[6] ?? 65 + (seedFromName(name) % 22),
@@ -831,6 +851,12 @@ export function createMatch(
     impactFlash: 0,
     netPulse: 0,
   };
+  state.benches = {
+    home: rosterFor(homeTeam, homeSquad).filter(seed => !state.players.some(p => p.side === "home" && p.squadId === (seed[7] ?? `${seed[0]}-${seed[1]}`))),
+    away: rosterFor(awayTeam, awaySquad).filter(seed => !state.players.some(p => p.side === "away" && p.squadId === (seed[7] ?? `${seed[0]}-${seed[1]}`))),
+  };
+  state.substitutions = { home: 0, away: 0 };
+  state.players.forEach(p => statsFor(state, p));
   resetPositions(state, "home");
   if (demo) {
     state.frozen = 0;
@@ -918,7 +944,7 @@ export function accuratePassTarget(
   const composure = (passer.passing * 0.72 + passer.overall * 0.28) / 100;
   const archetypeBonus = passer.archetype === "creator" ? 0.78 : 1;
   const error = clamp(
-    (1.02 - composure) * 11.5 * (1 + pressure * 1.05) * archetypeBonus,
+    (1.02 - composure) * 11.5 * (1 + pressure * 1.05) * archetypeBonus / footEfficiency(passer, targetX, targetY) * (passer.trait === "technical" ? .84 : 1),
     0.08,
     4.1,
   );
@@ -934,6 +960,7 @@ export function finishingTargetY(
   desiredY: number,
   baseSpread: number,
 ) {
+  baseSpread /= footEfficiency(shooter, attackingGoalX(state, shooter.side), desiredY);
   const range = distance(
     shooter.x,
     shooter.y,
@@ -1070,6 +1097,9 @@ export function kickBall(
   kind: "pass" | "shot" | "clear",
   lift?: number,
 ) {
+  recordKick(state, player, kind);
+  const foot = footEfficiency(player, tx, ty);
+  power *= kind === "shot" ? foot * (player.trait === "power" ? 1.04 : 1) : .94 + foot * .06;
   const dx = tx - player.x;
   const dy = ty - player.y;
   const magnitude = Math.max(0.001, Math.hypot(dx, dy));
@@ -1201,7 +1231,7 @@ export function passLaneRisk(
 }
 export function choosePassTarget(state: MatchState, player: Player) {
   const tactic =
-    TACTICS[player.side === "home" ? state.homeTactic : state.awayTactic];
+    tacticFor(state, player.side);
   let best: Player | undefined,
     bestScore = -Infinity;
   for (const candidate of state.players) {
@@ -1289,17 +1319,15 @@ export function passToPlayer(
 }
 
 export function selectedIdForSide(state: MatchState, side: Side) {
-  return side === "home" ? state.selectedId : state.selectedAwayId;
+  return side === "home" ? state.lockedPlayerId ?? state.selectedId : state.selectedAwayId;
 }
 
 export function passBall(state: MatchState, side: Side = "home", aim?: { x: number; y: number }, through = false) {
   const owner = getPlayer(state, state.ball.owner);
-  if (
-    !owner ||
-    owner.side !== side ||
-    owner.id !== selectedIdForSide(state, side)
-  )
-    return false;
+  if (side === "home" && state.lockedPlayerId && owner?.id !== state.lockedPlayerId) return requestPlayerPass(state);
+  if (!owner || owner.side !== side || owner.id !== selectedIdForSide(state, side)) return false;
+  const runner = state.oneTwo && state.oneTwo.receiver === owner.id && state.oneTwo.expires > state.elapsed ? getPlayer(state, state.oneTwo.runner) : undefined;
+  if (runner && passToPlayer(state, owner, runner, true)) { state.oneTwo = undefined; return true; }
   const receiver = aim ? chooseDirectionalPassTarget(state, owner, aim) : choosePassTarget(state, owner);
   if (receiver) return passToPlayer(state, owner, receiver, through);
   if (aim && Math.hypot(aim.x, aim.y) > .12) {
@@ -1421,6 +1449,8 @@ export function startSetPiece(
   requestedX: number,
   requestedY: number,
 ) {
+  if (state.detail) { state.detail.pending = null; state.detail.assist = null; }
+  state.oneTwo = undefined;
   const attackDirection = attackDirectionFor(state, side);
   const targetGoalX = attackingGoalX(state, side);
   const ownGoalX = defendingGoalX(state, side);
@@ -1452,7 +1482,7 @@ export function startSetPiece(
         distance(a.x, a.y, spotX, spotY) - distance(b.x, b.y, spotX, spotY),
     );
   const taker =
-    candidates[0] ??
+    candidates.find(p => p.id === state.lockedPlayerId) ?? candidates[0] ??
     state.players.find((player) => player.side === side && !player.sentOff);
   if (!taker) return;
 
@@ -1768,6 +1798,7 @@ export function commitFoul(
 }
 
 export function switchToClosestPlayer(state: MatchState, side: Side) {
+  if (side === "home" && state.lockedPlayerId) { requestPlayerPass(state); return; }
   const currentId = selectedIdForSide(state, side);
   const ballOwner = getPlayer(state, state.ball.owner);
   if (
@@ -1991,6 +2022,7 @@ export function resolvePlayerCollisions(state: MatchState) {
 }
 
 export function awardTacklePossession(state: MatchState, player: Player, carrier?: Player) {
+  recordReception(state, player); statsFor(state, player).duels++;
   Object.assign(state.ball, { owner: player.id, lastTouch: player.side, lastPlayerId: player.id,
     x: player.x + player.facingX, y: player.y + player.facingY, z: 0.12, vx: 0, vy: 0, vz: 0, spin: 0, looseTimer: 0 });
   player.possessionTime = 0;
@@ -2272,7 +2304,7 @@ export function pressingPlayer(state: MatchState, side: Side) {
   const targetX = owner?.x ?? state.ball.x;
   const targetY = owner?.y ?? state.ball.y;
   const ballProgress = attackProgressAt(state, side, targetX);
-  const tactic = TACTICS[side === "home" ? state.homeTactic : state.awayTactic];
+  const tactic = tacticFor(state, side);
   return state.players
     .filter(
       (player) =>
@@ -2677,10 +2709,20 @@ export function aiTarget(
   dt: number,
 ) {
   const owner = getPlayer(state, state.ball.owner);
+  const run = state.oneTwo;
+  if (run && run.expires > state.elapsed && run.runner === player.id && state.ball.owner !== player.id) {
+    movePlayer(player, run.x, run.y, 15 * playerAttributeFactor(player.pace), dt); return;
+  }
+  if (run && run.expires > state.elapsed && run.receiver === player.id && state.ball.owner === player.id && player.possessionTime > .35) {
+    const runner = getPlayer(state, run.runner);
+    if (runner && !isOffsidePosition(state, player, runner) && passLaneRisk(state, player, runner) < .65) {
+      passToPlayer(state, player, runner, true); state.oneTwo = undefined; return;
+    }
+  }
   const teamHasBall = owner?.side === player.side;
   const attackDirection = attackDirectionFor(state, player.side);
   const tactic =
-    TACTICS[player.side === "home" ? state.homeTactic : state.awayTactic];
+    tacticFor(state, player.side);
   const difficultyBoost =
     player.side === "away"
       ? state.difficulty === "easy"
@@ -2690,7 +2732,7 @@ export function aiTarget(
           : 1
       : 1;
   const abilityBoost =
-    teamAbility(state, player.side) * playerAttributeFactor(player.pace);
+    teamAbility(state, player.side) * playerAttributeFactor(player.pace) * (.78 + .22 * clamp(player.stamina / 45,0,1));
   const bounds = roleProgressBounds(player.role, tactic);
   const baseProgress = attackProgressAt(
     state,
@@ -2992,6 +3034,7 @@ export function registerGoal(
   const scoringTeam = scoringSide === "home" ? state.homeTeam : state.awayTeam;
   const scorer = getPlayer(state, state.ball.lastPlayerId);
   const ownGoal = state.ball.lastTouch !== scoringSide;
+  recordGoal(state, scorer, scoringSide);
   const goalLabel = ownGoal
     ? "GOL CONTRA"
     : (scorer?.name.toUpperCase() ?? scoringTeam.short) +
@@ -3027,6 +3070,7 @@ export function registerGoal(
   state.cameraShake = demo ? 0.35 : spectacular ? 1.15 : 0.88;
   state.impactFlash = demo ? 0.2 : 0.7;
   state.netPulse = 1;
+  if (scorer && !ownGoal) { scorer.action = "celebrate"; scorer.actionTimer = 1.8; }
 }
 
 export function dribbleTouchDistance(player: Player, elapsed: number) {
@@ -3264,6 +3308,7 @@ export function updateBall(state: MatchState, dt: number, demo: boolean) {
       }
     });
     if (!pickup && blocker) {
+      recordReception(state, blocker, false);
       let normalX = state.ball.x - blocker.x;
       let normalY = state.ball.y - blocker.y;
       let normalMagnitude = Math.hypot(normalX, normalY);
@@ -3310,6 +3355,7 @@ export function updateBall(state: MatchState, dt: number, demo: boolean) {
         0.4,
       );
       if (!handling && incoming > 18 && random(state) < heavyTouch) {
+        recordReception(state, pickup, false);
         const speed = Math.max(0.01, ballSpeed),
           cushion = clamp((100 - skill) * 0.14, 2, 8);
         state.ball.x = pickup.x + (state.ball.vx / speed) * 1.8;
@@ -3340,6 +3386,7 @@ export function updateBall(state: MatchState, dt: number, demo: boolean) {
             )
           : 0;
       if (handling && ballSpeed > 31 && random(state) > catchChance) {
+        recordReception(state, pickup, false);
         const wideDirection = state.ball.y < 32 ? -1 : 1;
         state.ball.owner = null;
         state.ball.lastTouch = pickup.side;
@@ -3357,6 +3404,7 @@ export function updateBall(state: MatchState, dt: number, demo: boolean) {
         setMessage(state, pickup.keeperSave === "tip" ? "POR CIMA DO TRAVESSÃO!" : "ESPALMA O GOLEIRO!", 0.8);
         return;
       }
+      recordReception(state, pickup);
       state.ball.owner = pickup.id;
       state.ball.lastTouch = pickup.side;
       state.ball.lastPlayerId = pickup.id;
@@ -3432,7 +3480,7 @@ export function updateDefensivePressure(state: MatchState, dt: number, demo: boo
   t.secondaryId = null;
   if (t.stagnant < 1.15 && t.held < 5) return;
   const side: Side = owner.side === "home" ? "away" : "home", primary = pressingPlayer(state, side);
-  const tactic = TACTICS[side === "home" ? state.homeTactic : state.awayTactic];
+  const tactic = tacticFor(state, side);
   const progress = attackProgressAt(state, side, owner.x);
   const support = state.players.filter(p => p.side === side && p.role !== "GK" && !p.sentOff && p.id !== primary?.id &&
     !(side === "home" && p.id === state.selectedId) && !(side === "away" && state.gameMode === "local2p" && p.id === state.selectedAwayId) &&
@@ -3550,6 +3598,8 @@ export function updateMatch(
 ) {
   if (state.paused || state.finished) return;
   state.elapsed += dt;
+  if (state.lockedPlayerId) state.selectedId = state.lockedPlayerId;
+  if (state.oneTwo && state.oneTwo.expires < state.elapsed) state.oneTwo = undefined;
   state.cameraShake = Math.max(0, state.cameraShake - dt * 2.8);
   state.impactFlash = Math.max(0, state.impactFlash - dt * 2.5);
   state.netPulse = Math.max(0, state.netPulse - dt * 1.45);
@@ -3571,7 +3621,7 @@ export function updateMatch(
     return;
   }
 
-  if (!demo) {
+  if (!demo && !state.training) {
     state.remaining = Math.max(0, state.remaining - dt);
     if (state.remaining <= 0) {
       if (state.half === 1) {
@@ -3634,6 +3684,16 @@ export function updateMatch(
     player.y = clamp(player.y, 3.5, FIELD_H - 3.5);
   });
 
+  if (!demo) for (const p of state.players) {
+    if (!p.sentOff && p.role !== 'GK') p.stamina = Math.max(0,p.stamina-Math.max(0,tacticFor(state,p.side).pressure-1)*dt*4);
+  }
+  trackAthletes(state, dt);
+  if (state.ball.owner === null && state.ball.z > 1.6 && state.ball.z < 3.3 && state.ball.vz < 1) {
+    const aerial = state.players.filter(p => !p.sentOff && p.role !== "GK" && p.id !== selectedIdForSide(state, "home") &&
+      !(state.gameMode === "local2p" && p.id === state.selectedAwayId) && !(p.skillCooldown && p.skillCooldown > 0) &&
+      distance(p.x,p.y,state.ball.x,state.ball.y) < 2.5).sort((a,b) => distance(a.x,a.y,state.ball.x,state.ball.y)-distance(b.x,b.y,state.ball.x,state.ball.y))[0];
+    if (aerial) aerialStrike(state, aerial, state.ball.z > 2.15 ? "header" : "volley");
+  }
   resolvePlayerCollisions(state);
   resolveKeeperSmothers(state);
   resolveStealAttempts(state, demo);
@@ -3643,6 +3703,7 @@ export function updateMatch(
   updateBall(state, dt, demo);
   updateSteals(state, dt, demo);
   updatePitchWear(state.pitchWear, state.players, dt);
+  if (state.lockedPlayerId) state.selectedId = state.lockedPlayerId;
 
   state.players.forEach((player) => {
     if (player.sentOff) return;
@@ -3666,11 +3727,15 @@ export function performSkill(state: MatchState, side: Side, kind: SkillKind) {
   const p = getPlayer(state, selectedIdForSide(state,side));
   if (!p || p.sentOff || state.paused || state.finished || state.frozen>0 || state.setPiece ||
     p.slideTimer>0 || p.stumbleTimer>0 || (p.skillCooldown??0)>0) return false;
+  if (kind === "crossHigh" || kind === "crossLow") return crossBall(state, p, kind === "crossLow");
+  if (kind === "header" || kind === "volley") return aerialStrike(state, p, kind);
+  if (kind === "oneTwo") return oneTwoPass(state, p);
   if (kind === "bicycle") {
     if (state.ball.owner!==null || state.ball.z<1.4 || state.ball.z>4 ||
       distance(p.x,p.y,state.ball.x,state.ball.y)>2.8 || p.stamina<14) {
       setMessage(state,"BICICLETA: aproxime-se de uma bola no ar",.9); return false;
     }
+    recordReception(state,p);
     const height=state.ball.z;
     const timing=clamp(1-Math.abs(height-2.3)*.35,.35,1);
     const aim=finishingTargetY(state,p,32+p.facingY*6,6+(1-timing)*5);
@@ -3709,4 +3774,103 @@ export function supportPosition(state: MatchState, p: Player, owner: Player, pro
     if(score>bestScore){best=candidate;bestScore=score;}
   }
   return best;
+}
+
+// The generated profiles are gameplay characteristics, not a real-world scouting database.
+export function footEfficiency(p: Player, tx: number, ty: number) {
+  const lateral = p.facingX * (ty - p.y) - p.facingY * (tx - p.x);
+  const weak = p.preferredFoot === 'left' ? lateral > 2 : lateral < -2;
+  return weak ? .72 + clamp(p.weakFoot ?? 3, 1, 5) * .056 : 1;
+}
+export function tacticFor(state: MatchState, side: Side): TacticDefinition {
+  const base = TACTICS[side === 'home' ? state.homeTactic : state.awayTactic];
+  const live = state.liveTactics?.[side];
+  return live ? { ...base, width: base.width * live.width, pressure: base.pressure * live.pressure } : base;
+}
+export function setLiveTactics(state: MatchState, side: Side, tactic: TacticId, pressure: number, width: number) {
+  if (!state.paused || !TACTICS[tactic] || !Number.isFinite(pressure) || !Number.isFinite(width)) return false;
+  if (side === 'home') state.homeTactic = tactic; else state.awayTactic = tactic;
+  state.liveTactics ??= {};
+  state.liveTactics[side] = { pressure: clamp(pressure, .65, 1.4), width: clamp(width, .7, 1.3) };
+  return true;
+}
+export function substitutePlayer(state: MatchState, side: Side, outgoingId: number, benchIndex: number) {
+  const outgoing = getPlayer(state, outgoingId), bench = state.benches?.[side], seed = bench?.[benchIndex];
+  if (!state.paused || state.finished || state.training || !outgoing || outgoing.side !== side || outgoing.sentOff ||
+    outgoing.id === state.lockedPlayerId || !seed || (state.substitutions?.[side] ?? 0) >= 5 ||
+    (seed[3] === 'GK') !== (outgoing.role === 'GK')) return false;
+  const fresh = buildPlayers(state.homeTeam, state.awayTeam, state.homeFormation, state.awayFormation)[0];
+  const attributes = attributeProfile(seed, seed[3] ?? outgoing.role);
+  Object.assign(fresh, { ...outgoing, ...attributes, squadId: seed[7] ?? `${seed[0]}-${seed[1]}`, name: seed[0],
+    number: seed[1], overall: seed[2], stamina: 100, mass: seed[6] ?? 75, strength: clamp(seed[2]+3,45,96),
+    endurance: clamp(seed[2]+2,45,96), archetype: playerArchetypeFor(seed[3] ?? outgoing.role, attributes),
+    preferredFoot: seedFromName(seed[0])%4===0?'left':'right', weakFoot: 2+seedFromName(seed[0])%4,
+    trait: (['technical','aerial','speed','power'] as const)[seedFromName(seed[0])%4], appearance: undefined,
+    action:'none',actionTimer:0,skillCooldown:0,stumbleTimer:0,slideTimer:0,stealTimer:0,
+    yellowCards:0,vx:0,vy:0,controlShield:0,decisionCooldown:.6 });
+  state.players[state.players.indexOf(outgoing)] = fresh;
+  bench!.splice(benchIndex,1);
+  state.substitutions ??= {home:0,away:0}; state.substitutions[side]++;
+  if (state.detail) { state.detail.pending = null; state.detail.assist = null; }
+  statsFor(state,fresh);
+  setMessage(state, `ENTRA ${fresh.name.toUpperCase()}`,1.5);
+  return true;
+}
+export function requestPlayerPass(state: MatchState) {
+  const p = getPlayer(state,state.lockedPlayerId ?? null), owner = getPlayer(state,state.ball.owner);
+  if (!p || !owner || owner.id === p.id || owner.side !== p.side || state.paused || state.finished || state.setPiece ||
+    (state.requestCooldown ?? 0) > state.elapsed || distance(p.x,p.y,owner.x,owner.y)>45) return false;
+  state.requestCooldown = state.elapsed+1;
+  if (isOffsidePosition(state,owner,p) || passLaneRisk(state,owner,p)>.8) {
+    setMessage(state,'BUSQUE UMA LINHA DE PASSE LIVRE',1); return false;
+  }
+  return passToPlayer(state,owner,p);
+}
+export function oneTwoPass(state: MatchState, p: Player) {
+  if (state.ball.owner !== p.id) return false;
+  const receiver = choosePassTarget(state,p);
+  if (!receiver || !passToPlayer(state,p,receiver)) return false;
+  state.oneTwo = { runner:p.id,receiver:receiver.id,x:clamp(p.x+attackDirectionFor(state,p.side)*17,5,95),
+    y:clamp(p.y+(receiver.y>p.y?-3:3),5,59),expires:state.elapsed+4 };
+  if (!state.lockedPlayerId) {
+    if(p.side==='home')state.selectedId=receiver.id; else state.selectedAwayId=receiver.id;
+  }
+  setMessage(state,'TABELINHA • DEVOLVA O PASSE',1.1); return true;
+}
+export function crossBall(state: MatchState, p: Player, low: boolean) {
+  if (state.ball.owner !== p.id) return false;
+  const receiver = state.players.filter(q => q.side === p.side && q.id !== p.id && q.role !== 'GK' && !q.sentOff &&
+    !isOffsidePosition(state,p,q)).sort((a,b) =>
+      distance(a.x,a.y,attackingGoalX(state,p.side),32)-distance(b.x,b.y,attackingGoalX(state,p.side),32))[0];
+  if (!receiver) return false;
+  const target = accuratePassTarget(state,p,clamp(receiver.x+attackDirectionFor(state,p.side)*3,3,97),clamp(receiver.y,16,48));
+  const d=distance(p.x,p.y,target.x,target.y), flight=low?clamp(d/38,.3,1.2):clamp(d/28,.8,1.35);
+  kickBall(state,p,target.x,target.y,low?clamp(d*1.5,24,64):(d-1.7)*.24048/(1-Math.exp(-.24048*flight)),'pass',low?.35:9.25*flight+2.1/flight);
+  state.passIntent={receiverId:receiver.id,x:target.x,y:target.y,expires:state.elapsed+3};
+  if (!state.lockedPlayerId) { if(p.side==='home')state.selectedId=receiver.id;else state.selectedAwayId=receiver.id; }
+  setMessage(state,low?'CRUZAMENTO RASTEIRO':'CRUZAMENTO ALTO • DISPUTE A POSIÇÃO',1.1); return true;
+}
+export function aerialWindow(state: MatchState, p: Player, kind: 'header'|'volley'|'bicycle') {
+  const z=state.ball.z, d=distance(p.x,p.y,state.ball.x,state.ball.y);
+  const min=kind==='volley'?.6:kind==='header'?1.8:1.4, max=kind==='volley'?2.3:4;
+  return state.ball.owner===null && d<2.8 && z>=min && z<=max;
+}
+export function aerialStrike(state: MatchState, p: Player, kind: 'header'|'volley') {
+  if (!aerialWindow(state,p,kind) || (p.skillCooldown??0)>0 || p.stamina<7) return false;
+  const rival=state.players.filter(q=>q.side!==p.side && !q.sentOff && q.role!=='GK' && distance(q.x,q.y,state.ball.x,state.ball.y)<3)
+    .sort((a,b)=>distance(a.x,a.y,state.ball.x,state.ball.y)-distance(b.x,b.y,state.ball.x,state.ball.y))[0];
+  const position=distance(p.x,p.y,state.ball.x,state.ball.y);
+  if (rival && rival.strength + (rival.trait==='aerial'?10:0) - distance(rival.x,rival.y,state.ball.x,state.ball.y)*13 >
+    p.strength+(p.trait==='aerial'?10:0)-position*13+5) {
+    p.skillCooldown=.55;p.stumbleTimer=.12;setMessage(state,'DEFENSOR GANHOU A POSIÇÃO',.7);return false;
+  }
+  const height=state.ball.z, ideal=kind==='header'?2.65:1.25;
+  const timing=clamp(1-Math.abs(height-ideal)*.4,.3,1), range=distance(p.x,p.y,attackingGoalX(state,p.side),32);
+  const attacking=range<40;
+  recordReception(state,p);
+  kickBall(state,p,attackingGoalX(state,p.side),finishingTargetY(state,p,32+p.facingY*5,3+(1-timing)*7),
+    (kind==='header'?29+timing*10:43+timing*14)*(p.trait==='aerial'?1.07:1),attacking?'shot':'clear',kind==='header'?-1.4:1.6);
+  state.ball.z=height;p.action=kind;p.actionTimer=.65;p.skillCooldown=1;p.stamina-=7;
+  state.lastShotStyle=kind==='header'?'CABEÇADA':'VOLEIO';statsFor(state,p).duels+=rival?1:0;
+  setMessage(state,state.lastShotStyle+(timing>.8?' • NO TEMPO CERTO!':''),.8);return true;
 }

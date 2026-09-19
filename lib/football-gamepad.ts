@@ -8,7 +8,7 @@ export type PadProfiles = Record<string, PadProfile>;
 export type PadInput = { x: number; y: number; sprint: boolean; shield?: boolean };
 export type PadFamily = "xbox" | "playstation" | "nintendo" | "generic";
 export type PadInfo = { side: Side; index: number; id: string; family: PadFamily; usable: boolean; custom: boolean };
-export type PadEvent = { side: Side; action: "rainbow" | "feint" | "bicycle" | "pass" | "through" | "shootStart" | "shootRelease" | "slide" | "steal" | "switch" | "pause" | "confirm" | "back" | "up" | "down" | "left" | "right" };
+export type PadEvent = { side: Side; action: "crossHigh" | "crossLow" | "oneTwo" | "rainbow" | "feint" | "bicycle" | "pass" | "through" | "shootStart" | "shootRelease" | "slide" | "steal" | "switch" | "pause" | "confirm" | "back" | "up" | "down" | "left" | "right" };
 export const PAD_ACTIONS: PadAction[] = ["pass", "shoot", "through", "slide", "steal", "switch", "sprint", "pause"];
 export const STANDARD_PAD: PadProfile = { axisX: 0, axisY: 1, invertX: false, invertY: false,
   buttons: { pass: 0, shoot: 1, through: 3, slide: 2, steal: 6, switch: 4, sprint: 7, pause: 9 } };
@@ -115,6 +115,9 @@ export function createGamepadDriver() {
             if(inputs[side].shield && action==='pass')emit('rainbow');
             else if(inputs[side].shield && action==='through')emit('bicycle');
             else if(inputs[side].shield && action==='slide')emit('feint');
+            else if(inputs[side].sprint && action==='pass')emit('oneTwo');
+            else if(inputs[side].sprint && action==='through')emit('crossHigh');
+            else if(inputs[side].sprint && action==='slide')emit('crossLow');
             else emit(action);
           }
           if(down("shoot"))emit("shootStart");if(up("shoot"))emit("shootRelease");

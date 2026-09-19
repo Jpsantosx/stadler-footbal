@@ -1,3 +1,4 @@
+import { TRAINING_GATES } from "./football-training";
 import * as THREE from "three";
 import { cameraTarget, stepCamera, broadcastCameraPose, DEFAULT_PRESENTATION, type PresentationSettings, type CameraFrame } from "./football-camera";
 import { athletePose, createLocomotion, type Locomotion } from "./football-animation";
@@ -167,6 +168,7 @@ function kitTexture(team: Team, player: Player) {
 }
 
 type Athlete = {
+  identity: string;
   root: THREE.Group;
   body: THREE.Group;
   legs: THREE.Group[];
@@ -434,6 +436,7 @@ export function createStadiumRenderer(
     new THREE.MeshBasicMaterial({ color: "#efffd1", transparent: true, opacity: .65, depthWrite: false }));
   ballLocator.rotation.x = -Math.PI / 2;
   scene.add(ballLocator);
+  const trainingMarkers=TRAINING_GATES.map(g=>{const ring=new THREE.Mesh(new THREE.RingGeometry(2.5,3,40),new THREE.MeshBasicMaterial({color:0xa5ff64,side:THREE.DoubleSide,transparent:true,opacity:.8}));ring.rotation.x=-Math.PI/2;ring.position.set(g.x,.04,g.y);scene.add(ring);return ring;});
   let previousNetPulse = 0;
   const athletes = new Map<number, Athlete>();
   let matchIdentity: MatchState | null = null;
@@ -445,7 +448,7 @@ export function createStadiumRenderer(
     root.add(body);
     scene.add(root);
     const skin = standard(
-      ["#d9a47e", "#ac7551", "#774e35", "#bf8b66"][p.id % 4],
+      p.appearance?.skin ?? ["#d9a47e", "#ac7551", "#774e35", "#bf8b66"][p.id % 4],
     );
     const shirt = new THREE.MeshStandardMaterial({
       map: kitTexture(team, p),
@@ -465,8 +468,9 @@ export function createStadiumRenderer(
     const neck = new THREE.Mesh(new THREE.CylinderGeometry(.12,.13,.2,12),skin);
     neck.position.y=-.3; headGroup.add(neck);
     const hair = new THREE.Mesh(new THREE.SphereGeometry(.258,18,12,0,Math.PI*2,0,Math.PI*.48),
-      standard(["#251b17","#3e2a1d","#171719","#60452d"][p.id%4]));
-    hair.position.y=.04;hair.scale.set(.9,1.05,.96);headGroup.add(hair);
+      standard(p.appearance?.hair ?? ["#251b17","#3e2a1d","#171719","#60452d"][p.id%4]));
+    hair.position.y=.04;hair.scale.set(p.appearance?.style==='mohawk'?.28:.9,p.appearance?.style==='mohawk'?1.5:1.05,.96);hair.visible=p.appearance?.style!=='bald';headGroup.add(hair);
+    body.scale.setScalar((p.appearance?.height??180)/180);
     const nose = new THREE.Mesh(new THREE.SphereGeometry(.06,8,6),skin);
     nose.position.set(0,-.01,.235);nose.scale.set(.55,1,1);headGroup.add(nose);
     for(const side of [-1,1]) {
@@ -553,7 +557,7 @@ export function createStadiumRenderer(
     label.scale.set(6, 6, 1);
     label.position.y = 4.6;
     root.add(label);
-    return { root, body, legs, knees, arms, elbows, head:headGroup, ring, label, motion:createLocomotion(p) };
+    return { identity:p.squadId, root, body, legs, knees, arms, elbows, head:headGroup, ring, label, motion:createLocomotion(p) };
   }
   function disposeObject(object: THREE.Object3D) {
     const textures = new Set<THREE.Texture>(),
@@ -646,8 +650,11 @@ export function createStadiumRenderer(
         positions.needsUpdate=true;
       }
       previousNetPulse = state.netPulse;
+      crowd.position.y=Math.abs(Math.sin(state.elapsed*13))*state.netPulse*.5;
+      trainingMarkers.forEach((ring,i)=>{ring.visible=state.training?.kind==='dribble'&&state.training.checkpoint===i;});
       for (const p of state.players) {
-        const a = athletes.get(p.id)!;
+        let a = athletes.get(p.id)!;
+        if(a.identity!==p.squadId){scene.remove(a.root);disposeObject(a.root);a=athlete(p,p.side==='home'?state.homeTeam:state.awayTeam);athletes.set(p.id,a);}
         const pose = ceremony ? celebrationPose(ceremony, p) : null;
         a.root.visible = ceremony ? !!pose : !p.sentOff;
         a.root.position.set(pose?.x ?? p.x, pose?.height ?? 0, pose?.y ?? p.y);
