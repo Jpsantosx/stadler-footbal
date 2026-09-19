@@ -7,8 +7,15 @@ import {
 } from "@/lib/football-career";
 import { joystickVector, clearMatchInput } from "@/lib/football-input";
 import { updateTitleCelebration, seekTitleCelebration } from "@/lib/football-presentation";
+import { createFramePresenter } from "@/lib/football-frame";
+import { createRenderBudget } from "@/lib/football-performance";
+import { drawRadar } from "@/lib/football-radar";
+import { DEFAULT_PRESENTATION, parsePresentation, type PresentationSettings, type CameraMode, type StadiumLight } from "@/lib/football-camera";
 import { createStadiumRenderer } from "@/lib/football-webgl";
 import CareerOffice from "./career-office";
+import ControllerSettings from "./controller-settings";
+import { createGamepadDriver, beginPadCalibration, advancePadCalibration, parsePadProfiles, CALIBRATION_STEPS, padButtonLabel, type PadInfo, type PadProfiles, type PadCalibration, type PadSample } from "@/lib/football-gamepad";
+import { navigateGamepadMenu } from "@/lib/football-gamepad-menu";
 
 import {
   competitionPoolFor,
@@ -35,6 +42,8 @@ import {
   getPlayer,
   lineupOverall,
   passBall,
+  movementIntent,
+  chooseDirectionalPassTarget,
   releaseShot,
   rosterFor,
   selectedIdForSide,
@@ -92,7 +101,10 @@ import {
   ChevronLeft,
   ChevronRight,
   Crown,
+  Camera,
+  Sun,
   Gauge,
+  Gamepad2,
   Landmark,
   Maximize2,
   Pause,
@@ -174,13 +186,19 @@ function TeamFlag({ team }: { team: Team }) {
 
 export default function FootballGame() {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const radarRef = useRef<HTMLCanvasElement | null>(null);
   const joystickPointer = useRef<number | null>(null);
   const shotPointer = useRef<number | null>(null);
+  const passPointer = useRef<{ id: number; started: number } | null>(null);
   const [fullscreenHint, setFullscreenHint] = useState("");
   const rootRef = useRef<HTMLElement | null>(null);
   const engineRef = useRef<MatchState | null>(null);
   const screenRef = useRef<Screen>("menu");
   const qualityRef = useRef<Quality>("ultra");
+  const presentationRef = useRef<PresentationSettings>(DEFAULT_PRESENTATION);
+  const gamepadDriverRef = useRef<ReturnType<typeof createGamepadDriver> | null>(null);
+  const padProfilesRef = useRef<PadProfiles>({});
+  const calibrationRef = useRef<PadCalibration | null>(null);
   const audioEnabledRef = useRef(true);
   const inputRef = useRef<InputState>({
     keys: new Set<string>(),
@@ -217,6 +235,13 @@ export default function FootballGame() {
   const [awayTactic, setAwayTactic] = useState<TacticId>("counter");
   const [difficulty, setDifficulty] = useState<Difficulty>("normal");
   const [quality, setQuality] = useState<Quality>("ultra");
+  const [presentation, setPresentation] = useState<PresentationSettings>(DEFAULT_PRESENTATION);
+  const [rendererStatus, setRendererStatus] = useState<"starting" | "webgl" | "canvas" | "unavailable">("starting");
+  const [passTargetName, setPassTargetName] = useState("");
+  const [padInfos,setPadInfos]=useState<PadInfo[]>([]);
+  const [padProfiles,setPadProfiles]=useState<PadProfiles>({});
+  const [calibration,setCalibration]=useState<PadCalibration|null>(null);
+  const [controllerNotice,setControllerNotice]=useState("");
   const [audioEnabled, setAudioEnabled] = useState(true);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [marketOpen, setMarketOpen] = useState(false);
@@ -379,6 +404,17 @@ export default function FootballGame() {
   const [careerSaveFailed, setCareerSaveFailed] = useState(false);
   useEffect(() => {
     const timer = window.setTimeout(() => {
+      try {
+        const profiles=parsePadProfiles(JSON.parse(window.localStorage.getItem("stadler-controllers-v1")||"{}"));
+        padProfilesRef.current=profiles;setPadProfiles(profiles);
+      } catch { /* A missing controller profile uses browser standard mapping. */ }
+      try {
+        const preferences = JSON.parse(window.localStorage.getItem("stadler-presentation-v1") || "{}");
+        setPresentation(parsePresentation(preferences));
+        if (["performance","balanced","ultra"].includes(preferences.quality)) setQuality(preferences.quality);
+        else if (window.matchMedia("(pointer: coarse)").matches) setQuality("balanced");
+        if (typeof preferences.audioEnabled === "boolean") setAudioEnabled(preferences.audioEnabled);
+      } catch { /* Corrupt or unavailable preferences use playable defaults. */ }
       try {
         const stored = window.localStorage.getItem("stadler-career-v1");
         if (stored) {
@@ -659,12 +695,17 @@ export default function FootballGame() {
   }, [quality]);
 
   useEffect(() => {
+    presentationRef.current = presentation;
+    if (!careerReady) return;
+    try { window.localStorage.setItem("stadler-presentation-v1", JSON.stringify({...presentation,quality,audioEnabled})); }
+    catch { /* Private browsing may disable preference storage. */ }
+  }, [presentation, quality, audioEnabled, careerReady]);
+
+  useEffect(() => {
     audioEnabledRef.current = audioEnabled;
   }, [audioEnabled]);
 
   useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
     if (!engineRef.current || screenRef.current === "menu")
       engineRef.current = createMatch(
         homeTeam,
@@ -678,9 +719,93 @@ export default function FootballGame() {
         awayTactic,
         activeCareerSquad,
       );
-    const stadium = createStadiumRenderer(canvas);
+  }, [homeTeam, awayTeam, difficulty, gameMode, homeFormation, awayFormation, homeTactic, awayTactic, activeCareerSquad]);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const stadium = canvas.dataset.renderer === "canvas" ? null : createStadiumRenderer(canvas);
     const context = stadium ? null : canvas.getContext("2d", { alpha: false });
-    if (!stadium && !context) return;
+    if (!stadium && !context) {
+      const timer=window.setTimeout(()=>setRendererStatus("unavailable"),0);
+      return ()=>window.clearTimeout(timer);
+    }
+    const readyTimer=window.setTimeout(()=>setRendererStatus(stadium?"webgl":"canvas"),0);
+    const presenter = createFramePresenter();
+    const renderBudget = createRenderBudget();
+    let renderScale = 1;
+    let renderQuality = qualityRef.current;
+    let requestedQuality = qualityRef.current;
+    const gamepads = createGamepadDriver();gamepadDriverRef.current=gamepads;
+    let controllerDigest="";
+    let controllerError="";
+    let pageFocused=true;
+    const pollControllers=(state:MatchState, now:number) => {
+      let pads: (Gamepad|null)[]=[];
+      try {
+        if(!navigator.getGamepads)throw new Error("Este navegador não oferece suporte a controles. Abra o jogo em um navegador compatível.");
+        pads=Array.from(navigator.getGamepads());
+      } catch {
+        const message="Não foi possível acessar controles neste navegador. Abra o link do jogo diretamente e verifique a conexão USB/Bluetooth.";
+        if(controllerError!==message){controllerError=message;setControllerNotice(message);}
+      }
+      const configuring=calibrationRef.current;
+      if(configuring) {
+        const pad=pads.find(p=>p?.index===configuring.index && p.id===configuring.id);
+        if(!pad) {calibrationRef.current=null;setCalibration(null);setControllerNotice("Controle desconectado durante a configuração. Reconecte para tentar novamente.");}
+        else {
+          const next=advancePadCalibration(configuring,pad);
+          if(next!==configuring) {
+            if(next.step>=CALIBRATION_STEPS.length) {
+              const profiles={...padProfilesRef.current,[next.id]:next.profile};
+              padProfilesRef.current=profiles;setPadProfiles(profiles);
+              try {window.localStorage.setItem("stadler-controllers-v1",JSON.stringify(profiles));setControllerNotice("Controle configurado e salvo neste navegador.");}
+              catch {setControllerNotice("Controle configurado para esta sessão; o navegador não permitiu salvar.");}
+              calibrationRef.current=null;setCalibration(null);gamepads.reset();
+            } else {calibrationRef.current=next;setCalibration(next);}
+          }
+        }
+      }
+      const active=screenRef.current==="playing" && !state.paused;
+      const context=!pageFocused || document.hidden || !!calibrationRef.current ? "blocked" : active ? "playing" : "menu";
+      const frame=gamepads.poll(pads as (PadSample|null)[],state.gameMode,context,now,padProfilesRef.current);
+      const digest=JSON.stringify(frame.infos);
+      if(digest!==controllerDigest){controllerDigest=digest;setPadInfos(frame.infos);}
+      inputRef.current.controllers=frame.inputs;
+      if(frame.disconnected.length) {
+        clearMatchInput(inputRef.current,state);gamepads.reset();
+        setControllerNotice("Controle desconectado. Reconecte e pressione um botão, ou continue com teclado/toque.");
+        if(active)actionsRef.current.togglePause();
+        return;
+      }
+      if(context==="blocked")return;
+      if(frame.events.some(e=>e.action==="pause")) {
+        if(active)actionsRef.current.togglePause();
+        else if(screenRef.current==="playing" && state.paused && !document.querySelector('[role="dialog"]'))actionsRef.current.togglePause();
+        else navigateGamepadMenu("pause");
+        return;
+      }
+      for(const event of frame.events) {
+        if(context==="menu") {
+          if(["up","down","left","right","confirm","back"].includes(event.action)) {
+            if(screenRef.current==="celebrating" && (event.action==="confirm"||event.action==="back"))document.querySelector<HTMLButtonElement>('.ceremony-skip')?.click();
+            else navigateGamepadMenu(event.action as "up"|"down"|"left"|"right"|"confirm"|"back");
+          }
+        } else {
+          const action=actionsRef.current;
+          if(event.action==="pass"||event.action==="through")action.pass(event.side,event.action==="through");
+          else if(event.action==="shootStart") {
+            const owner=getPlayer(state,state.ball.owner);
+            if(owner?.side!==event.side && !state.setPiece)action.steal(event.side);
+            else action.shootStart(event.side);
+          }
+          else if(event.action==="shootRelease")action.shootRelease(event.side);
+          else if(event.action==="slide")action.slide(event.side);
+          else if(event.action==="steal")action.steal(event.side);
+          else if(event.action==="switch")action.switchPlayer(event.side);
+        }
+      }
+    };
     canvas.dataset.renderer = stadium ? "webgl" : "canvas";
     let view: View = { width: 1280, height: 720, dpr: 1 };
     let animationFrame = 0;
@@ -698,12 +823,12 @@ export default function FootballGame() {
     const resize = () => {
       const rect = canvas.getBoundingClientRect();
       const maxDpr =
-        qualityRef.current === "performance"
+        renderQuality === "performance"
           ? 1
-          : qualityRef.current === "balanced"
+          : renderQuality === "balanced"
             ? 1.45
             : 2;
-      const dpr = Math.min(window.devicePixelRatio || 1, maxDpr);
+      const dpr = Math.min(window.devicePixelRatio || 1, maxDpr) * renderScale;
       const width = Math.max(320, rect.width);
       const height = Math.max(180, rect.height);
       if (
@@ -726,6 +851,14 @@ export default function FootballGame() {
     const updateHud = (state: MatchState) => {
       const selected = getPlayer(state, state.selectedId);
       const selectedAway = getPlayer(state, state.selectedAwayId);
+      const aim=movementIntent(inputRef.current,"home",state.gameMode);
+      const receiver=selected?.id===state.ball.owner ? chooseDirectionalPassTarget(state,selected,aim) : undefined;
+      setPassTargetName(receiver?.name ?? "");
+      const radarContext = radarRef.current?.getContext("2d");
+      if (radarContext && presentationRef.current.radar) {
+        radarContext.setTransform(2, 0, 0, 2, 0, 0);
+        drawRadar(radarContext, state);
+      }
       setHud({
         homeScore: state.homeScore,
         awayScore: state.awayScore,
@@ -757,14 +890,20 @@ export default function FootballGame() {
       const frameTime = Math.max(0, (now - previous) / 1000);
       const dt = Math.min(0.1, frameTime);
       previous = now;
-      resize();
+      const budget = renderBudget.sample(frameTime, qualityRef.current, presentationRef.current.automatic, !document.hidden && !state?.paused);
+      if (budget.scale !== renderScale || budget.quality !== renderQuality || requestedQuality !== qualityRef.current) {
+        renderScale = budget.scale; renderQuality = budget.quality; requestedQuality = qualityRef.current;
+        resize();
+      }
       if (state) {
+        pollControllers(state,now);
         const demo = screenRef.current === "menu";
         if (demo || screenRef.current === "playing") {
           if (state.paused || document.hidden) accumulator = 0;
           else {
             accumulator += dt * (demo ? 0.62 : 1);
             while (accumulator >= 1 / 120) {
+              presenter.capture(state);
               updateMatch(state, inputRef.current, 1 / 120, demo);
               accumulator -= 1 / 120;
             }
@@ -818,10 +957,11 @@ export default function FootballGame() {
           playTone("whistle");
         }
 
-        if (stadium) stadium.render(state, qualityRef.current);
+        const visual = presenter.sample(state, state.paused || state.finished || screenRef.current !== "playing" ? 1 : accumulator * 120);
+        if (stadium) stadium.render(visual, renderQuality, presentationRef.current);
         else if (context) {
           context.setTransform(view.dpr, 0, 0, view.dpr, 0, 0);
-          drawScene(context, view, state, qualityRef.current);
+          drawScene(context, view, visual, renderQuality, presentationRef.current);
         }
         hudTimer += dt;
         fpsTimer += dt;
@@ -840,7 +980,7 @@ export default function FootballGame() {
     };
 
     actionsRef.current = {
-      pass: (side = "home") => {
+      pass: (side = "home", through = false) => {
         const state = engineRef.current;
         if (!state || state.paused || screenRef.current !== "playing") return;
         if (state.setPiece) {
@@ -850,8 +990,8 @@ export default function FootballGame() {
           }
           return;
         }
-        passBall(state, side);
-        playTone("kick");
+        const intent = movementIntent(inputRef.current,side,state.gameMode);
+        if (passBall(state,side,intent,through)) playTone("kick");
       },
       shootStart: (side = "home") => {
         const state = engineRef.current;
@@ -915,7 +1055,8 @@ export default function FootballGame() {
         if (!state || screenRef.current !== "playing") return;
         state.paused = !state.paused;
         clearMatchInput(inputRef.current, state);
-        joystickPointer.current = null; shotPointer.current = null;
+        gamepads.reset();
+        joystickPointer.current = null; shotPointer.current = null; passPointer.current = null;
         setKnob({ x: 0, y: 0 });
         setPaused(state.paused);
       },
@@ -923,6 +1064,9 @@ export default function FootballGame() {
 
     const onKeyDown = (event: KeyboardEvent) => {
       if (screenRef.current !== "playing") return;
+      const dialog = document.querySelector('[role="dialog"]');
+      if (dialog && !dialog.classList.contains("pause-dialog")) return;
+      if (engineRef.current?.paused && event.code !== "KeyP" && event.code !== "Escape") return;
       const blocked = [
         "ArrowUp",
         "ArrowDown",
@@ -939,19 +1083,19 @@ export default function FootballGame() {
       if (event.repeat) return;
       const localTwoPlayer = engineRef.current?.gameMode === "local2p";
       if (localTwoPlayer) {
-        if (event.code === "KeyF") actionsRef.current.pass("home");
+        if (event.code === "KeyF") actionsRef.current.pass("home", inputRef.current.keys.has("ShiftLeft"));
         if (event.code === "Space") actionsRef.current.shootStart("home");
         if (event.code === "KeyE") actionsRef.current.steal("home");
         if (event.code === "KeyQ") actionsRef.current.switchPlayer("home");
         if (event.code === "KeyR") actionsRef.current.slide("home");
-        if (event.code === "KeyK") actionsRef.current.pass("away");
+        if (event.code === "KeyK") actionsRef.current.pass("away", inputRef.current.keys.has("Enter"));
         if (event.code === "KeyL") actionsRef.current.shootStart("away");
         if (event.code === "KeyJ") actionsRef.current.steal("away");
         if (event.code === "KeyI") actionsRef.current.switchPlayer("away");
         if (event.code === "KeyU") actionsRef.current.slide("away");
       } else {
         if (event.code === "KeyF" || event.code === "KeyX") {
-          actionsRef.current.pass("home");
+          actionsRef.current.pass("home", inputRef.current.keys.has("ShiftLeft") || inputRef.current.keys.has("ShiftRight"));
         }
         if (event.code === "Space" || event.code === "KeyC") {
           actionsRef.current.shootStart("home");
@@ -983,7 +1127,8 @@ export default function FootballGame() {
     };
 
     const onBlur = () => {
-      joystickPointer.current = null; shotPointer.current = null;
+      pageFocused=false;gamepads.reset();inputRef.current.controllers={};
+      joystickPointer.current = null; shotPointer.current = null; passPointer.current = null;
       setKnob({ x: 0, y: 0 });
       inputRef.current.keys.clear();
       inputRef.current.touchX = 0;
@@ -1002,37 +1147,30 @@ export default function FootballGame() {
         }
       }
     };
+    const onFocus=()=>{pageFocused=true;gamepads.reset();};
+    const onOrientation=()=>{const focused=pageFocused;onBlur();pageFocused=focused;};
+    window.addEventListener("focus",onFocus);
     window.addEventListener("blur", onBlur);
-    const onVisibility = () => { if (document.hidden) onBlur(); };
+    const onVisibility = () => { if (document.hidden) onBlur(); else onFocus(); };
     document.addEventListener("visibilitychange", onVisibility);
-    window.addEventListener("orientationchange", onBlur);
+    window.addEventListener("orientationchange", onOrientation);
     window.addEventListener("keydown", onKeyDown, { passive: false });
     window.addEventListener("keyup", onKeyUp);
     animationFrame = requestAnimationFrame(loop);
 
     return () => {
+      window.clearTimeout(readyTimer);
       observer.disconnect();
       stadium?.dispose();
+      window.removeEventListener("focus",onFocus);
       window.removeEventListener("blur", onBlur);
       document.removeEventListener("visibilitychange", onVisibility);
-      window.removeEventListener("orientationchange", onBlur);
+      window.removeEventListener("orientationchange", onOrientation);
       cancelAnimationFrame(animationFrame);
       window.removeEventListener("keydown", onKeyDown);
       window.removeEventListener("keyup", onKeyUp);
     };
-  }, [
-    activeCareerSquad,
-    awayFormation,
-    awayTactic,
-    difficulty,
-    homeFormation,
-    homeTactic,
-    homeTeam,
-    awayTeam,
-    gameMode,
-    playTone,
-    setGameScreen,
-  ]);
+  }, [playTone, setGameScreen]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -1207,11 +1345,13 @@ export default function FootballGame() {
   };
 
   const toggleSettings = (open: boolean) => {
+    if(!open){calibrationRef.current=null;setCalibration(null);}
+    gamepadDriverRef.current?.reset();
     const state = engineRef.current;
     if (open && state && screenRef.current === "playing") {
       state.paused = true;
       clearMatchInput(inputRef.current, state);
-      joystickPointer.current = null; shotPointer.current = null;
+      joystickPointer.current = null; shotPointer.current = null; passPointer.current = null;
       setKnob({ x: 0, y: 0 });
     }
     if (!open && state && screenRef.current === "playing" && !paused) {
@@ -1221,6 +1361,7 @@ export default function FootballGame() {
   };
 
   const resume = () => {
+    gamepadDriverRef.current?.reset();
     const state = engineRef.current;
     if (state) state.paused = false;
     setPaused(false);
@@ -1248,11 +1389,19 @@ export default function FootballGame() {
     (finalStats.homePossession / possessionTotal) * 100,
   );
   const awayPossession = 100 - homePossession;
+  const setPiecePad=padInfos.find(p=>p.usable && p.side===hud.setPieceSide && (p.side==="home" || hud.gameMode==="local2p"));
+  const setPieceControllerHint = setPiecePad
+    ? !hud.setPieceReady ? "Aguarde para cobrar"
+      : setPiecePad.custom ? "Analógico: mira · botão de passe ou segure chute"
+      : `Analógico: mira · ${padButtonLabel(setPiecePad.family,"pass")} passe · ${padButtonLabel(setPiecePad.family,"shoot")} chute`
+    : null;
 
   return (
     <main
       ref={rootRef}
       className={"football-shell quality-" + quality}
+      data-camera={presentation.camera}
+      data-lighting={presentation.lighting}
       data-screen={screen}
       aria-label="Stadler Football 3D"
     >
@@ -1278,7 +1427,7 @@ export default function FootballGame() {
         {screen === "playing" && (
           <>
             <div className="scoreboard" aria-label="Placar da partida">
-              <div className="score-team">
+              <div className="score-team" style={{borderBottomColor:homeTeam.primary}}>
                 <TeamBadge team={homeTeam} compact />
                 <span>{homeTeam.short}</span>
                 {hud.homeCards > 0 && (
@@ -1294,7 +1443,7 @@ export default function FootballGame() {
                 <b>{formatTime(hud.remaining)}</b>
               </div>
               <strong>{hud.awayScore}</strong>
-              <div className="score-team score-team--away">
+              <div className="score-team score-team--away" style={{borderBottomColor:awayTeam.primary}}>
                 {hud.awayCards > 0 && (
                   <small className="card-total">
                     <i />
@@ -1306,6 +1455,12 @@ export default function FootballGame() {
               </div>
             </div>
 
+            <div className="broadcast-tag" aria-hidden="true"><i /> STADLER SPORTS <span>AO VIVO</span></div>
+            {presentation.radar && <div className="match-radar" aria-label="Radar: seu time em verde, adversário em azul e bola branca">
+              <canvas ref={radarRef} width={440} height={292} aria-hidden="true" />
+              <div><span><i />{homeTeam.short}</span><span>{awayTeam.short}<i /></span></div>
+            </div>}
+            {!hud.setPieceKind && <div className="mobile-player-readout">{hud.playerNumber} · {hud.playerName}<span>OVR {hud.playerOverall}</span></div>}
             {hud.setPieceKind && (
               <div
                 className="set-piece-hud"
@@ -1313,10 +1468,10 @@ export default function FootballGame() {
                 role="status"
               >
                 <span>{setPieceName(hud.setPieceKind)}</span>
-                <strong className="keyboard-set-piece">{setPieceInstruction(hud)}</strong>
+                {setPieceControllerHint ? <strong>{setPieceControllerHint}</strong> : <><strong className="keyboard-set-piece">{setPieceInstruction(hud)}</strong>
                 <strong className="touch-set-piece">{hud.setPieceSide === "away"
                   ? hud.gameMode === "local2p" ? "J2: use o teclado para cobrar" : "Adversário na cobrança"
-                  : hud.setPieceReady ? "Analógico: mira • PASSE ou segure CHUTE" : "Aguarde para cobrar"}</strong>
+                  : hud.setPieceReady ? "Analógico: mira • PASSE ou segure CHUTE" : "Aguarde para cobrar"}</strong></>}
               </div>
             )}
 
@@ -1365,6 +1520,7 @@ export default function FootballGame() {
               <div className="player-info">
                 <strong>{hud.playerName}</strong>
                 <span>JOGADOR 1 • OVR {hud.playerOverall}</span>
+                {passTargetName && <small className="pass-target">PASSE → {passTargetName}</small>}
                 <div className="stamina-track">
                   <i
                     style={{
@@ -1442,7 +1598,7 @@ export default function FootballGame() {
             >
               <kbd>P</kbd> pausa e controles
             </button>
-            <p className="mobile-play-hint" role="status">{fullscreenHint || (hud.gameMode === "local2p" ? "Toque controla J1 • J2 usa teclado" : "Na borda do analógico: correr • Segure chute: força")}</p>
+            <p className="mobile-play-hint" role="status">{fullscreenHint || (hud.gameMode === "local2p" ? "J1 e J2: controles ou teclado • Toque: J1" : "Analógico: mira/corre • Segure passe: enfiada")}</p>
             <div className="touch-controls" aria-label="Controles de toque" onContextMenu={event => event.preventDefault()}>
               <span className="touch-orientation-hint">Vire o celular para uma visão mais ampla</span>
               <div
@@ -1519,10 +1675,25 @@ export default function FootballGame() {
                 <button
                   type="button"
                   className="touch-button touch-button--pass"
-                  onClick={() => actionsRef.current.pass()}
-                  aria-label="Passar a bola"
+                  onPointerDown={event => {
+                    event.preventDefault();
+                    if (passPointer.current) return;
+                    passPointer.current={id:event.pointerId,started:performance.now()};
+                    event.currentTarget.setPointerCapture(event.pointerId);
+                  }}
+                  onPointerUp={event => {
+                    const pointer=passPointer.current;if(pointer?.id!==event.pointerId)return;
+                    passPointer.current=null;
+                    actionsRef.current.pass("home",performance.now()-pointer.started>=320);
+                    if(event.currentTarget.hasPointerCapture(event.pointerId))event.currentTarget.releasePointerCapture(event.pointerId);
+                  }}
+                  onPointerCancel={() => { passPointer.current=null; }}
+                  onLostPointerCapture={() => { passPointer.current=null; }}
+                  onClick={event => { if(event.detail===0)actionsRef.current.pass(); }}
+                  aria-label="Passar a bola; segure para enfiada"
                 >
                   PASSE
+                  <small>segure: enfiada</small>
                 </button>
                 <button
                   type="button"
@@ -1563,7 +1734,7 @@ export default function FootballGame() {
               <p className="mobile-menu-note">Pronto para toque • Jogue na horizontal para ampliar o campo.</p>
               <div className="eyebrow">
                 <span>
-                  <i /> MATCHDAY
+                  <i /> MATCHDAY · BROADCAST
                 </span>
                 <span>116 CLUBES</span>
                 <span>6 LIGAS</span>
@@ -2042,19 +2213,22 @@ export default function FootballGame() {
                 </RadioGroup>
               </div>
 
+              <button className="controller-strip" type="button" onClick={()=>toggleSettings(true)}>
+                <Gamepad2 size={19}/><span>{padInfos.length?padInfos.map(p=>`J${p.side==="home"?1:2}: ${p.family==="generic"?"controle":p.family}`).join(" · "):"Xbox · PlayStation · Nintendo"}<small>{padInfos.length?"Ver botões e configurar controles":"USB ou Bluetooth · pressione um botão para ativar"}</small></span><ChevronRight size={16}/>
+              </button>
               <div className="menu-actions">
                 <button
                   type="button"
                   className="play-button"
                   disabled={
-                    (competitionMode === "league" ||
+                    rendererStatus === "starting" || rendererStatus === "unavailable" || ((competitionMode === "league" ||
                       competitionMode === "career") &&
-                    availableAwayTeams.length === 0
+                    availableAwayTeams.length === 0)
                   }
                   onClick={startMatch}
                 >
                   <Play fill="currentColor" size={21} />
-                  {availableAwayTeams.length === 0
+                  {rendererStatus === "starting" ? "PREPARANDO ESTÁDIO" : rendererStatus === "unavailable" ? "GRÁFICOS INDISPONÍVEIS" : availableAwayTeams.length === 0
                     ? "TEMPORADA CONCLUÍDA"
                     : "JOGAR AGORA"}
                   <span>
@@ -2330,7 +2504,7 @@ export default function FootballGame() {
                 <Gauge size={18} />
                 Qualidade gráfica
               </span>
-              <small>Recomendado: ultra</small>
+              <small>{presentation.automatic ? "Ajuste automático ativo" : "Qualidade fixa"}</small>
             </div>
             <RadioGroup
               value={quality}
@@ -2361,6 +2535,31 @@ export default function FootballGame() {
               </label>
             </RadioGroup>
           </div>
+          <div className="presentation-controls">
+            <label><span><Camera size={17} /> Câmera da partida</span>
+              <select aria-label="Câmera da partida" value={presentation.camera} onChange={e=>setPresentation(p=>({...p,camera:e.target.value as CameraMode}))}>
+                <option value="broadcast">Transmissão · acompanha a jogada</option>
+                <option value="tactical">Tática · visão do campo inteiro</option>
+                <option value="close">Próxima · foco no lance</option>
+              </select>
+            </label>
+            <label><span><Sun size={17} /> Iluminação do estádio</span>
+              <select aria-label="Iluminação do estádio" value={presentation.lighting} onChange={e=>setPresentation(p=>({...p,lighting:e.target.value as StadiumLight}))}>
+                <option value="night">Noite · refletores</option>
+                <option value="day">Dia · luz natural</option>
+              </select>
+            </label>
+            <p>{rendererStatus==="webgl"?"Renderização 3D ativa":"Renderização 2D compatível ativa"} · Preferências salvas neste navegador.</p>
+          </div>
+          <div className="presentation-switches">
+            <label><span><strong>Ajuste automático de desempenho</strong><small>Reduz a resolução e os efeitos quando a partida perde fluidez.</small></span><Switch checked={presentation.automatic} onCheckedChange={automatic=>setPresentation(p=>({...p,automatic}))} aria-label="Ajuste automático de desempenho" /></label>
+            <label><span><strong>Radar da partida</strong><small>Veja os companheiros, adversários e a bola no campo inteiro.</small></span><Switch checked={presentation.radar} onCheckedChange={radar=>setPresentation(p=>({...p,radar}))} aria-label="Mostrar radar da partida" /></label>
+          </div>
+          <ControllerSettings infos={padInfos} profiles={padProfiles} calibration={calibration} notice={controllerNotice}
+            onCalibrate={info=>{const next=beginPadCalibration(info);calibrationRef.current=next;setCalibration(next);gamepadDriverRef.current?.reset();setControllerNotice("");}}
+            onCancel={()=>{calibrationRef.current=null;setCalibration(null);gamepadDriverRef.current?.reset();}}
+            onReset={id=>{const next={...padProfilesRef.current};delete next[id];padProfilesRef.current=next;setPadProfiles(next);gamepadDriverRef.current?.reset();try{window.localStorage.setItem("stadler-controllers-v1",JSON.stringify(next));}catch{/* Session preference remains active. */}}}
+          />
           <div className="setting-toggle">
             <span>
               {audioEnabled ? <Volume2 size={19} /> : <VolumeX size={19} />}
@@ -2423,6 +2622,8 @@ export default function FootballGame() {
               Respire, ajuste a estratégia e volte para a partida.
             </DialogDescription>
           </DialogHeader>
+          {controllerNotice && <p className="controller-notice" role="status">{controllerNotice}</p>}
+          {padInfos.some(p=>p.usable) && <div className="pause-controller-help">{padInfos.filter(p=>p.usable).map(p=><p key={p.index}><Gamepad2 size={16}/> J{p.side==="home"?1:2}: {p.custom?"Botões personalizados nas configurações":`${padButtonLabel(p.family,"pass")} passe · ${padButtonLabel(p.family,"shoot")} chute · ${padButtonLabel(p.family,"sprint")} correr · ${padButtonLabel(p.family,"pause")} continuar`}</p>)}</div>}
           <div className="pause-controls" aria-label="Controles da partida">
             <section>
               <strong>
@@ -2435,7 +2636,7 @@ export default function FootballGame() {
                 <kbd>SHIFT</kbd> correr
               </span>
               <span>
-                <kbd>F</kbd> passe
+                <kbd>F</kbd> passe · Shift + F: enfiada
               </span>
               <span>
                 <kbd>ESPAÇO</kbd> chute
@@ -2460,7 +2661,7 @@ export default function FootballGame() {
                   <kbd>ENTER</kbd> correr
                 </span>
                 <span>
-                  <kbd>K</kbd> passe
+                  <kbd>K</kbd> passe · Enter + K: enfiada
                 </span>
                 <span>
                   <kbd>L</kbd> chute

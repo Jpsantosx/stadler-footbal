@@ -254,6 +254,7 @@ export type MatchStats = {
 };
 
 export type MatchState = {
+  passIntent: { receiverId: number; x: number; y: number; expires: number } | null;
   cupRound: number | null;
   winner: Side | null;
   shootout: Shootout | null;
@@ -325,6 +326,7 @@ export type Hud = {
 };
 
 export type InputState = {
+  controllers?: Partial<Record<Side, { x: number; y: number; sprint: boolean }>>;
   keys: Set<string>;
   touchX: number;
   touchY: number;
@@ -332,7 +334,7 @@ export type InputState = {
 };
 
 export type GameActions = {
-  pass: (side?: Side) => void;
+  pass: (side?: Side, through?: boolean) => void;
   shootStart: (side?: Side) => void;
   shootRelease: (side?: Side) => void;
   steal: (side?: Side) => void;
@@ -757,6 +759,7 @@ export function createMatch(
       homeSquad,
       awaySquad,
     ),
+    passIntent: null,
     ball: {
       x: 50,
       y: 32,
@@ -964,6 +967,7 @@ export function bestKickoffPlayer(state: MatchState, side: Side) {
 }
 
 export function resetPositions(state: MatchState, kickoffSide: Side) {
+  state.passIntent = null;
   state.players.forEach((player) => {
     if (player.sentOff) return;
     player.x = formationXFor(state, player);
@@ -1059,6 +1063,7 @@ export function kickBall(
   const dx = tx - player.x;
   const dy = ty - player.y;
   const magnitude = Math.max(0.001, Math.hypot(dx, dy));
+  state.passIntent = null;
   state.ball.owner = null;
   player.possessionTime = 0;
   state.ball.x = player.x + (dx / magnitude) * 1.7;
@@ -1224,18 +1229,39 @@ export function choosePassTarget(state: MatchState, player: Player) {
   }
   return best;
 }
+
+export function chooseDirectionalPassTarget(state: MatchState, player: Player, aim: { x: number; y: number }) {
+  const length = Math.hypot(aim.x, aim.y);
+  if (length < .12) return choosePassTarget(state, player);
+  const nx = aim.x / length, ny = aim.y / length;
+  let best: Player | undefined, score = -Infinity;
+  for (const mate of state.players) {
+    if (mate.id === player.id || mate.side !== player.side || mate.sentOff || isOffsidePosition(state, player, mate)) continue;
+    const dx = mate.x - player.x, dy = mate.y - player.y, d = Math.hypot(dx, dy);
+    if (d < 3 || d > 58) continue;
+    const alignment = (dx * nx + dy * ny) / d;
+    // A backwards input is a deliberate back pass, even when a striker is open.
+    if (alignment < .3) continue;
+    const candidate = alignment * 85 - Math.abs(d - 19) * .55 - passLaneRisk(state, player, mate) * 20;
+    if (candidate > score) { score = candidate; best = mate; }
+  }
+  return best;
+}
 export function passToPlayer(
   state: MatchState,
   passer: Player,
   receiver: Player,
+  through = false,
 ) {
   if (isOffsidePosition(state, passer, receiver)) return false;
   const d = distance(passer.x, passer.y, receiver.x, receiver.y),
-    lead = clamp(d / 65, 0.12, 0.48);
+    lead = through ? clamp(.5 + d / 95, .55, 1.1) : clamp(d / 65, 0.12, 0.48);
+  const runSpeed = Math.hypot(receiver.vx, receiver.vy);
+  const extraX = through && runSpeed < 4 ? attackDirectionFor(state, passer.side) * 6 : 0;
   const target = accuratePassTarget(
     state,
     passer,
-    clamp(receiver.x + receiver.vx * lead, 2, 98),
+    clamp(receiver.x + receiver.vx * lead + extraX, 2, 98),
     clamp(receiver.y + receiver.vy * lead, 2, 62),
   );
   kickBall(
@@ -1243,11 +1269,12 @@ export function passToPlayer(
     passer,
     target.x,
     target.y,
-    clamp(12 + d * 1.05, 19, 62) *
+    clamp(12 + d * 1.05 + (through ? 6 : 0), 19, 62) *
       clamp(0.92 + (passer.passing - 65) * 0.004, 0.87, 1.09),
     "pass",
-    d > 33 ? 3.1 : 0.75,
+    d > 33 ? 3.1 : through ? .45 : 0.75,
   );
+  state.passIntent = { receiverId: receiver.id, x: target.x, y: target.y, expires: state.elapsed + 2.5 };
   return true;
 }
 
@@ -1255,16 +1282,23 @@ export function selectedIdForSide(state: MatchState, side: Side) {
   return side === "home" ? state.selectedId : state.selectedAwayId;
 }
 
-export function passBall(state: MatchState, side: Side = "home") {
+export function passBall(state: MatchState, side: Side = "home", aim?: { x: number; y: number }, through = false) {
   const owner = getPlayer(state, state.ball.owner);
   if (
     !owner ||
     owner.side !== side ||
     owner.id !== selectedIdForSide(state, side)
   )
-    return;
-  const receiver = choosePassTarget(state, owner);
-  if (receiver) passToPlayer(state, owner, receiver);
+    return false;
+  const receiver = aim ? chooseDirectionalPassTarget(state, owner, aim) : choosePassTarget(state, owner);
+  if (receiver) return passToPlayer(state, owner, receiver, through);
+  if (aim && Math.hypot(aim.x, aim.y) > .12) {
+    const length = Math.hypot(aim.x, aim.y);
+    const target = accuratePassTarget(state, owner, owner.x + aim.x / length * 22, owner.y + aim.y / length * 22);
+    kickBall(state, owner, target.x, target.y, through ? 38 : 29, "pass", .7);
+    return true;
+  }
+  return false;
 }
 
 export function releaseShot(state: MatchState, side: Side = "home") {
@@ -1807,6 +1841,29 @@ export function slideTackle(state: MatchState, side: Side = "home") {
   }
 }
 
+export function applyMovementVelocity(player: Player, desiredX: number, desiredY: number, dt: number) {
+  if (dt <= 0) return;
+  const agility = playerAttributeFactor(player.pace * .6 + player.overall * .4);
+  const massFactor = clamp(76 / player.mass, .78, 1.18);
+  const fatigue = .78 + .22 * clamp(player.stamina / 45, 0, 1);
+  const braking = desiredX * player.vx + desiredY * player.vy <= 0;
+  const response = 1 - Math.exp(-(braking ? 12 : 8.4 * agility) * dt);
+  const dx = (desiredX - player.vx) * response, dy = (desiredY - player.vy) * response;
+  const demand = Math.hypot(dx, dy);
+  const acceleration = 58 * Math.pow(agility, 1.5) * massFactor * fatigue * (braking ? 1.45 : 1);
+  const scale = demand > 0 ? Math.min(1, acceleration * dt / demand) : 0;
+  player.vx += dx * scale; player.vy += dy * scale;
+}
+
+export function faceDirection(player: Player, x: number, y: number, dt: number) {
+  if (Math.hypot(x, y) < .05) return;
+  const current = Math.atan2(player.facingY, player.facingX), target = Math.atan2(y, x);
+  const delta = Math.atan2(Math.sin(target - current), Math.cos(target - current));
+  const turnRate = (5.5 + (player.overall - 60) * .12) * clamp(80 / player.mass, .85, 1.15);
+  const angle = current + clamp(delta, -turnRate * dt, turnRate * dt);
+  player.facingX = Math.cos(angle); player.facingY = Math.sin(angle);
+}
+
 export function movePlayer(
   player: Player,
   targetX: number,
@@ -1823,17 +1880,11 @@ export function movePlayer(
     magnitude > 0.12 ? (dx / magnitude) * arrivalSpeed * fatigue : 0;
   const desiredY =
     magnitude > 0.12 ? (dy / magnitude) * arrivalSpeed * fatigue : 0;
-  const agility = playerAttributeFactor(
-    player.pace * 0.58 + player.overall * 0.42,
-  );
-  const blend = 1 - Math.exp(-(magnitude < 2 ? 12 : 7.5 * agility) * dt);
-  player.vx += (desiredX - player.vx) * blend;
-  player.vy += (desiredY - player.vy) * blend;
+  applyMovementVelocity(player, desiredX, desiredY, dt);
   player.x += player.vx * dt;
   player.y += player.vy * dt;
   if (Math.hypot(player.vx, player.vy) > 0.2) {
-    player.facingX = player.vx / Math.hypot(player.vx, player.vy);
-    player.facingY = player.vy / Math.hypot(player.vx, player.vy);
+    faceDirection(player, player.vx, player.vy, dt);
   }
 }
 
@@ -2077,15 +2128,9 @@ export function resolveSlideTackles(state: MatchState, demo: boolean) {
   }
 }
 
-export function updateHuman(
-  player: Player,
-  input: InputState,
-  dt: number,
-  gameMode: GameMode,
-  ability: number,
-) {
-  const usesHomeKeys = gameMode === "solo" || player.side === "home";
-  const usesAwayKeys = gameMode === "solo" || player.side === "away";
+export function movementIntent(input: InputState, side: Side, gameMode: GameMode) {
+  const usesHomeKeys = gameMode === "solo" || side === "home";
+  const usesAwayKeys = gameMode === "solo" || side === "away";
   let dx =
     (usesHomeKeys && input.keys.has("KeyD") ? 1 : 0) -
     (usesHomeKeys && input.keys.has("KeyA") ? 1 : 0) +
@@ -2096,16 +2141,31 @@ export function updateHuman(
     (usesHomeKeys && input.keys.has("KeyW") ? 1 : 0) +
     (usesAwayKeys && input.keys.has("ArrowDown") ? 1 : 0) -
     (usesAwayKeys && input.keys.has("ArrowUp") ? 1 : 0);
-  if (player.side === "home") {
+  if (side === "home") {
     dx += input.touchX;
     dy += input.touchY;
+  }
+  const controller = input.controllers?.[side];
+  if (controller && Math.hypot(controller.x, controller.y) > Math.hypot(dx, dy)) {
+    dx = controller.x; dy = controller.y;
   }
   const magnitude = Math.hypot(dx, dy);
   if (magnitude > 1) {
     dx /= magnitude;
     dy /= magnitude;
   }
-  const sprint =
+  return { x: dx, y: dy, magnitude };
+}
+
+export function updateHuman(
+  player: Player,
+  input: InputState,
+  dt: number,
+  gameMode: GameMode,
+  ability: number,
+) {
+  const { x: dx, y: dy, magnitude } = movementIntent(input, player.side, gameMode);
+  const sprint = input.controllers?.[player.side]?.sprint ||
     (player.side === "home" &&
       (input.keys.has("ShiftLeft") ||
         input.touchSprint ||
@@ -2118,17 +2178,11 @@ export function updateHuman(
   const speed = (canSprint ? 19.5 : 13.6) * ability * fatigue;
   const desiredX = dx * speed;
   const desiredY = dy * speed;
-  const agility = playerAttributeFactor(
-    player.pace * 0.62 + player.overall * 0.38,
-  );
-  const blend = 1 - Math.exp(-(magnitude < 0.1 ? 13 : 8.5 * agility) * dt);
-  player.vx += (desiredX - player.vx) * blend;
-  player.vy += (desiredY - player.vy) * blend;
+  applyMovementVelocity(player, desiredX, desiredY, dt);
   player.x += player.vx * dt;
   player.y += player.vy * dt;
   if (magnitude > 0.1) {
-    player.facingX = dx;
-    player.facingY = dy;
+    faceDirection(player, dx, dy, dt);
   }
   if (canSprint)
     player.stamina = Math.max(
@@ -2747,6 +2801,19 @@ export function aiTarget(
       if (passLaneRisk(state, player, receiver) < 0.62 && shouldPass)
         passToPlayer(state, player, receiver);
     }
+    return;
+  }
+
+  const intent = state.passIntent;
+  if (intent && intent.receiverId === player.id && intent.expires > state.elapsed &&
+      state.ball.owner === null && state.ball.lastTouch === player.side) {
+    const landing = predictBallLanding(state.ball);
+    const lead = clamp(distance(player.x, player.y, state.ball.x, state.ball.y) / 45, .08, .45);
+    const requestedX = state.ball.z > 1.4 ? landing.x : state.ball.x + state.ball.vx * lead;
+    const requestedY = state.ball.z > 1.4 ? landing.y : state.ball.y + state.ball.vy * lead;
+    movePlayer(player, xFromAttackProgress(state, player.side,
+      clamp(attackProgressAt(state, player.side, requestedX), bounds.min, bounds.max)),
+      clamp(requestedY, 2, 62), 15.2 * abilityBoost * difficultyBoost, dt);
     return;
   }
 
@@ -3386,22 +3453,7 @@ export function updateSetPiece(
     !demo && (piece.side === "home" || state.gameMode === "local2p");
   if (humanSetPiece) {
     piece.readyTimer += dt;
-    let aimDirection =
-      (piece.side === "home"
-        ? input.keys.has("KeyS")
-          ? 1
-          : 0
-        : input.keys.has("ArrowDown")
-          ? 1
-          : 0) -
-      (piece.side === "home"
-        ? input.keys.has("KeyW")
-          ? 1
-          : 0
-        : input.keys.has("ArrowUp")
-          ? 1
-          : 0);
-    if (piece.side === "home") aimDirection += input.touchY;
+    const aimDirection = movementIntent(input, piece.side, state.gameMode).y;
     piece.aimY = clamp(
       piece.aimY + aimDirection * dt * 10.5,
       GOAL_TOP + 1,

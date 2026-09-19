@@ -69,11 +69,11 @@ export function createWearOverlay(scene: THREE.Scene) {
   };
 }
 
-export function createPostProcessing(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.OrthographicCamera) {
+export function createPostProcessing(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.PerspectiveCamera) {
   const composer = new EffectComposer(renderer);
   const render = new RenderPass(scene, camera);
   const bokeh = new BokehPass(scene, camera, { focus: 20, aperture: 0.0016, maxblur: 0.009 });
-  bokeh.materialBokeh.defines.PERSPECTIVE_CAMERA = 0;
+  bokeh.materialBokeh.defines.PERSPECTIVE_CAMERA = 1;
   const dofUniforms = bokeh.uniforms as Record<string, THREE.IUniform>;
   const bloom = new UnrealBloomPass(new THREE.Vector2(1280, 720), 0.25, 0.45, 1.8);
   const centers = Array.from({ length: 17 }, () => new THREE.Vector4(-10, -10, 0, 0));

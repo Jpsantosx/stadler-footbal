@@ -1,3 +1,5 @@
+import { cameraTarget, stepCamera, DEFAULT_PRESENTATION, type PresentationSettings, type CameraFrame } from "./football-camera";
+import { athletePose, createLocomotion, type Locomotion } from "./football-animation";
 import { celebrationParticle, fireworkParticle, celebrationPose } from "./football-presentation";
 import { WEAR_COLS } from "./football-pitch";
 import {
@@ -64,11 +66,12 @@ function drawStadium(
   ctx: CanvasRenderingContext2D,
   view: View,
   quality: Quality,
+  lighting: "night" | "day" = "night",
 ) {
   const bg = ctx.createLinearGradient(0, 0, 0, view.height);
-  bg.addColorStop(0, "#071018");
-  bg.addColorStop(0.45, "#101b22");
-  bg.addColorStop(1, "#020506");
+  bg.addColorStop(0, lighting === "day" ? "#809ba9" : "#071018");
+  bg.addColorStop(.45, lighting === "day" ? "#547680" : "#101b22");
+  bg.addColorStop(1, lighting === "day" ? "#25444b" : "#020506");
   ctx.fillStyle = bg;
   ctx.fillRect(0, 0, view.width, view.height);
 
@@ -430,6 +433,8 @@ function drawGoal(
   ctx.restore();
 }
 
+const playerMotions = new WeakMap<Player, Locomotion>();
+
 function drawPlayer(
   ctx: CanvasRenderingContext2D,
   view: View,
@@ -437,11 +442,19 @@ function drawPlayer(
   team: Team,
   selected: boolean,
   quality: Quality,
+  dt: number,
 ) {
   const p = project(view, player.x, player.y);
   const depthScale = 0.78 + (player.y / FIELD_H) * 0.28;
   const size = clamp(view.height / 48, 8, 14) * depthScale;
   const speed = Math.hypot(player.vx, player.vy);
+  let motion = playerMotions.get(player);
+  if (!motion) { motion=createLocomotion(player);playerMotions.set(player,motion); }
+  const pose = athletePose(player,motion,dt);
+  const stride=pose.stride[0]*size*.65;
+  const swingX=stride*(Math.abs(player.facingX)>.25?player.facingX:.3);
+  const swingY=stride*player.facingY*.5;
+  const kick=pose.kick*size*.45;
   const kitPrimary =
     player.role === "GK"
       ? player.side === "home"
@@ -458,7 +471,8 @@ function drawPlayer(
   const kitSocks = player.role === "GK" ? kitPrimary : team.socks;
 
   ctx.save();
-  ctx.translate(p.x, p.y);
+  ctx.translate(p.x, p.y-pose.bob*size*1.8);
+  ctx.rotate(pose.bank*.4);
   if (
     player.role === "GK" &&
     player.keeperDiveTimer > 0 &&
@@ -526,27 +540,27 @@ function drawPlayer(
   ctx.lineCap = "round";
   ctx.beginPath();
   ctx.moveTo(-size * 0.25, size * 0.2);
-  ctx.lineTo(-size * 0.4 + player.facingX * size * 0.15, size * 0.78);
+  ctx.lineTo(-size * 0.4 + player.facingX * size * 0.15 + swingX, size * 0.78 + swingY);
   ctx.moveTo(size * 0.25, size * 0.2);
-  ctx.lineTo(size * 0.4 + player.facingX * size * 0.15, size * 0.78);
+  ctx.lineTo(size * 0.4 + player.facingX * size * 0.15 - swingX + kick*player.facingX, size * 0.78 - swingY + kick*player.facingY);
   ctx.stroke();
 
   ctx.strokeStyle = kitSocks;
   ctx.lineWidth = Math.max(1.2, size * 0.12);
   ctx.beginPath();
-  ctx.moveTo(-size * 0.39, size * 0.58);
-  ctx.lineTo(-size * 0.42, size * 0.82);
-  ctx.moveTo(size * 0.39, size * 0.58);
-  ctx.lineTo(size * 0.42, size * 0.82);
+  ctx.moveTo(-size * .39+swingX*.6, size*.58+swingY*.6);
+  ctx.lineTo(-size*.42+swingX,size*.82+swingY);
+  ctx.moveTo(size*.39-swingX*.6,size*.58-swingY*.6);
+  ctx.lineTo(size*.42-swingX+kick*player.facingX,size*.82-swingY+kick*player.facingY);
   ctx.stroke();
 
   ctx.strokeStyle = "#e8ad7d";
   ctx.lineWidth = Math.max(1.6, size * 0.18);
   ctx.beginPath();
   ctx.moveTo(-size * 0.48, -size * 0.55);
-  ctx.lineTo(-size * 0.72 - player.facingY * size * 0.12, -size * 0.05);
+  ctx.lineTo(-size * 0.72 - player.facingY * size * 0.12 - swingX*.4, -size*.05-swingY*.5);
   ctx.moveTo(size * 0.48, -size * 0.55);
-  ctx.lineTo(size * 0.72 + player.facingY * size * 0.12, -size * 0.05);
+  ctx.lineTo(size * 0.72 + player.facingY * size * 0.12 + swingX*.4, -size*.05+swingY*.5);
   ctx.stroke();
 
   if (player.role !== "GK") {
@@ -1016,28 +1030,40 @@ function drawTitleCeremony(ctx: CanvasRenderingContext2D, view: View, state: Mat
   if(t>5)for(let i=0;i<38;i++)if(Math.sin(t*13+i*83)>.985){ctx.fillStyle="#fff";ctx.beginPath();ctx.arc((i*97)%w,h*.22+(i*23)%(h*.22),2.4,0,Math.PI*2);ctx.fill();}
 }
 
+const cameraFrames = new WeakMap<MatchState, { frame: CameraFrame; time: number; mode: string }>();
+
 export function drawScene(
   ctx: CanvasRenderingContext2D,
   view: View,
   state: MatchState,
   quality: Quality,
+  presentation: PresentationSettings = DEFAULT_PRESENTATION,
 ) {
   if (state.celebration) { drawTitleCeremony(ctx, view, state); return; }
   if (view.height > view.width * 1.1) {
     const fitted = { ...view, height: view.width * 0.78 };
     ctx.fillStyle = "#101d27"; ctx.fillRect(0, 0, view.width, view.height);
     ctx.save(); ctx.translate(0, (view.height - fitted.height) * 0.46);
-    drawScene(ctx, fitted, state, quality); ctx.restore();
+    drawScene(ctx, fitted, state, quality, presentation); ctx.restore();
     return;
   }
+  const target = cameraTarget(state,presentation.camera,view.width/view.height);
+  let tracking = cameraFrames.get(state);
+  if(!tracking) { tracking={frame:target,time:state.elapsed,mode:presentation.camera};cameraFrames.set(state,tracking); }
+  const frameDt = clamp(state.elapsed-tracking.time,0,.1);tracking.time=state.elapsed;
+  tracking.frame=tracking.mode!==presentation.camera?target:stepCamera(tracking.frame,target,frameDt);
+  tracking.mode=presentation.camera;
+  const zoom=116/tracking.frame.span,focus=project(view,tracking.frame.x,tracking.frame.y);
+  ctx.fillStyle=presentation.lighting==="day"?"#526f73":"#091820";ctx.fillRect(0,0,view.width,view.height);
   const shakeScale = clamp(view.height / 720, 0.65, 1.25);
   const shakeX =
     Math.sin(state.elapsed * 93) * state.cameraShake * 5.5 * shakeScale;
   const shakeY =
     Math.cos(state.elapsed * 71) * state.cameraShake * 3.4 * shakeScale;
   ctx.save();
-  ctx.translate(shakeX, shakeY);
-  drawStadium(ctx, view, quality);
+  ctx.translate(shakeX+view.width*.5,shakeY+view.height*.53);
+  ctx.scale(zoom,zoom);ctx.translate(-focus.x,-focus.y);
+  drawStadium(ctx, view, quality, presentation.lighting);
   drawField(ctx, view, quality, state);
   drawPitchWear(ctx, view, state);
   drawDefensiveCue(ctx, view, state, quality);
@@ -1056,6 +1082,7 @@ export function drawScene(
       player.side === "home" ? state.homeTeam : state.awayTeam,
       selected,
       quality,
+      frameDt,
     );
   });
   drawSetPieceGuide(ctx, view, state);

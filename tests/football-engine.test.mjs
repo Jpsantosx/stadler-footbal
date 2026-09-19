@@ -592,3 +592,262 @@ test("ceremony clock handles slow rendered frames independently of the physics t
   assert.equal(s.celebration.time,17);assert.equal(s.celebration.complete,true);
   assert.equal(s.elapsed,0);
 });
+
+import { PerspectiveCamera, Vector3 } from "three";
+import { cameraTarget, stepCamera, broadcastCameraPose, parsePresentation } from "../lib/football-camera.ts";
+import { createFramePresenter } from "../lib/football-frame.ts";
+import { athletePose, createLocomotion } from "../lib/football-animation.ts";
+import { chooseDirectionalPassTarget, passToPlayer, movementIntent, applyMovementVelocity, faceDirection } from "../lib/football-engine.ts";
+
+function projectCamera(frame, aspect, point) {
+  const pose = broadcastCameraPose(frame, aspect);
+  const camera = new PerspectiveCamera(pose.fov, aspect, .1, 400);
+  camera.position.set(pose.x, pose.height, pose.z);
+  camera.lookAt(pose.lookX, 0, pose.lookY); camera.updateMatrixWorld();
+  return new Vector3(point.x, 0, point.y).project(camera);
+}
+
+test("broadcast framing keeps the ball visible at touchlines and goal lines", () => {
+  const s=match();s.ball.vx=s.ball.vy=0;
+  for(const mode of ["broadcast","close","tactical"]) for(const aspect of [390/564,844/390,16/9]) for(const x of [1,50,99]) for(const y of [1,32,63]) {
+    s.ball.x=x;s.ball.y=y;
+    const projected=projectCamera(cameraTarget(s,mode,aspect),aspect,s.ball);
+    assert.ok(Math.abs(projected.x)<.96 && Math.abs(projected.y)<.96,JSON.stringify({mode,aspect,x,y,px:projected.x,py:projected.y}));
+  }
+});
+
+test("local multiplayer camera widens to retain both selected players", () => {
+  const s=match();s.gameMode="local2p";
+  const a=s.players.find(p=>p.id===s.selectedId), b=s.players.find(p=>p.id===s.selectedAwayId);
+  a.x=7;a.y=9;b.x=92;b.y=55;s.ball.x=80;s.ball.y=45;
+  for(const aspect of [1.3,16/9,2.16]) {
+    const frame=cameraTarget(s,"close",aspect);
+    for(const p of [a,b,s.ball]) {
+      const projected=projectCamera(frame,aspect,p);
+      assert.ok(Math.abs(projected.x)<.97 && Math.abs(projected.y)<.97);
+    }
+  }
+});
+
+test("camera smoothing has the same response at 30 and 120 frames per second", () => {
+  const start={x:50,y:32,span:78},target={x:75,y:20,span:100};
+  const run=hz=>{let c={...start};for(let i=0;i<hz;i++)c=stepCamera(c,target,1/hz);return c;};
+  const a=run(30),b=run(120);for(const key of ["x","y","span"])assert.ok(Math.abs(a[key]-b[key])<1e-8);
+  assert.deepEqual(parsePresentation({camera:"bad",lighting:"bad"}),{camera:"broadcast",lighting:"night",automatic:true,radar:true});
+});
+
+test("render interpolation never moves the simulation and snaps after restarts", () => {
+  const s=match();s.frozen=0;
+  const presenter=createFramePresenter(), p=s.players[2],x=p.x;
+  presenter.capture(s);p.x+=.2;s.ball.x+=.1;
+  const visual=presenter.sample(s,.5);
+  assert.ok(Math.abs(visual.players[2].x-x-.1)<1e-8);
+  assert.ok(Math.abs(p.x-x-.2)<1e-8);assert.notEqual(visual.players[2],p);
+  assert.equal(presenter.sample(s,.8),visual,"presentation identity must remain stable for renderer caches");
+  p.x=95;s.homeScore++;assert.equal(presenter.sample(s,.1).players[2].x,95);
+  const next=match();assert.notEqual(presenter.sample(next,1),visual);
+});
+
+test("directed passes honor a backward input and exclude offside receivers", () => {
+  const s=match();const passer=s.players.find(p=>p.side==="home"&&p.role==="MF");
+  const mates=s.players.filter(p=>p.side==="home"&&p.id!==passer.id);
+  passer.x=50;passer.y=32;passer.facingX=1;passer.facingY=0;
+  mates.forEach((p,i)=>{p.x=60+i;p.y=12;});
+  const back=mates[0];back.x=30;back.y=32;
+  const forward=mates[1];forward.x=65;forward.y=32;
+  s.players.filter(p=>p.side==="away").forEach((p,i)=>{p.x=85+i*.5;p.y=10+i*6;});
+  assert.equal(chooseDirectionalPassTarget(s,passer,{x:-1,y:0}).id,back.id);
+  assert.equal(chooseDirectionalPassTarget(s,passer,{x:1,y:0}).id,forward.id);
+  forward.x=99;
+  assert.notEqual(chooseDirectionalPassTarget(s,passer,{x:1,y:0})?.id,forward.id);
+});
+
+test("through passes lead a runner farther and retain a receiving intention", () => {
+  const s=match();const passer=s.players.find(p=>p.side==="home"&&p.role==="MF");
+  const receiver=s.players.find(p=>p.side==="home"&&p.role==="FW");
+  passer.x=35;passer.y=32;receiver.x=55;receiver.y=32;receiver.vx=8;receiver.vy=0;
+  s.players.filter(p=>p.side==="away").forEach(p=>p.x=90);
+  const rng=s.rng;passToPlayer(s,passer,receiver);const normal=s.passIntent.x;
+  s.rng=rng;passToPlayer(s,passer,receiver,true);
+  assert.ok(s.passIntent.x>normal+3);assert.equal(s.passIntent.receiverId,receiver.id);
+  assert.equal(s.ball.owner,null);
+});
+
+test("movement conserves momentum on reversal and responds to mass and OVR", () => {
+  const base=match().players[2];const light={...base,mass:65,overall:92,pace:92,vx:0,vy:0};
+  const heavy={...base,mass:94,overall:65,pace:65,vx:0,vy:0};
+  for(let i=0;i<12;i++){applyMovementVelocity(light,22,0,1/120);applyMovementVelocity(heavy,22,0,1/120);}
+  assert.ok(light.vx>heavy.vx*1.3);
+  light.vx=20;applyMovementVelocity(light,-20,0,1/120);assert.ok(light.vx>18);
+  const before=Math.atan2(light.facingY,light.facingX);
+  faceDirection(light,-light.facingX,-light.facingY,1/120);
+  assert.ok(Math.abs(Math.atan2(Math.sin(Math.atan2(light.facingY,light.facingX)-before),Math.cos(Math.atan2(light.facingY,light.facingX)-before)))<.2);
+});
+
+test("touch and keyboard use the same bounded aiming direction in local two player", () => {
+  const i=input();i.touchX=.8;i.touchY=.8;i.keys.add("ArrowLeft");
+  const home=movementIntent(i,"home","local2p"),away=movementIntent(i,"away","local2p");
+  assert.ok(Math.abs(Math.hypot(home.x,home.y)-1)<1e-8);assert.equal(away.x,-1);assert.equal(away.y,0);
+});
+
+test("athlete poses blend stride and distinct pass/shot recovery without invalid angles", () => {
+  const p={...match().players[2]}, m=createLocomotion(p);
+  p.vx=18;p.vy=0;for(let i=0;i<60;i++)athletePose(p,m,1/60);
+  p.action="shot";p.actionTimer=.25;const shot=athletePose(p,m,1/60);
+  p.action="pass";p.actionTimer=.17;const pass=athletePose(p,m,1/60);
+  assert.ok(shot.kick>pass.kick);
+  for(const n of [...shot.stride,...shot.knees,...shot.elbows,shot.lean,shot.bank])assert.ok(Number.isFinite(n));
+  p.actionTimer=0;p.vx=p.vy=0;let idle;for(let i=0;i<240;i++)idle=athletePose(p,m,1/60);
+  assert.ok(Math.abs(idle.stride[0])<.001);
+});
+
+test("broadcast camera follows a fast shot without losing the ball", () => {
+  const s=match();s.ball.owner=null;s.ball.x=50;s.ball.y=40;s.ball.vx=75;s.ball.vy=0;
+  const aspect=844/390;let frame=cameraTarget(s,"broadcast",aspect);
+  for(let tick=0;tick<40;tick++) {
+    s.ball.x=Math.min(100,s.ball.x+s.ball.vx/60);
+    frame=stepCamera(frame,cameraTarget(s,"broadcast",aspect),1/60);
+    const p=projectCamera(frame,aspect,s.ball);
+    assert.ok(Math.abs(p.x)<.98 && Math.abs(p.y)<.98);
+  }
+});
+
+import { createGamepadDriver, padFamily, padButtonLabel, padStick, STANDARD_PAD, PAD_ACTIONS, parsePadProfiles, beginPadCalibration, advancePadCalibration } from "../lib/football-gamepad.ts";
+
+const mockPad=(index=0,id="Xbox Wireless Controller")=>({index,id,connected:true,mapping:"standard",axes:[0,0,0,0],buttons:Array.from({length:17},()=>({pressed:false,value:0}))});
+const padButton=(pad,index,pressed)=>{pad.buttons[index]={pressed,value:pressed?1:0};};
+
+test("controller prompts follow standard physical layout for Xbox, Sony and Nintendo",()=>{
+  assert.equal(padFamily("Wireless Controller (Vendor: 054c Product: 09cc)"),"playstation");
+  assert.equal(padFamily("Nintendo Switch Pro Controller (057e)"),"nintendo");
+  assert.equal(padFamily("Xbox Wireless Controller"),"xbox");
+  assert.equal(padFamily("USB controller"),"generic");
+  assert.equal(padButtonLabel("xbox","pass"),"A");assert.equal(padButtonLabel("playstation","shoot"),"○");
+  assert.equal(padButtonLabel("nintendo","pass"),"B");assert.equal(padButtonLabel("nintendo","sprint"),"ZR");
+});
+
+test("analog dead zone rejects drift but preserves proportional diagonal movement",()=>{
+  assert.deepEqual(padStick(.1,-.09),{x:0,y:0});assert.deepEqual(padStick(NaN,1),{x:0,y:0});
+  const walk=padStick(.5,0),run=padStick(1,0),diagonal=padStick(1,1);
+  assert.ok(walk.x>0 && walk.x<run.x/2);assert.equal(run.x,1);
+  assert.ok(Math.abs(Math.hypot(diagonal.x,diagonal.y)-1)<1e-9);
+});
+
+test("new controllers wait for neutral and charge shots only on deliberate edges",()=>{
+  const driver=createGamepadDriver(),p=mockPad();padButton(p,1,true);
+  const poll=()=>driver.poll([p],"solo","playing",0);
+  assert.deepEqual(poll().events,[]);padButton(p,1,false);assert.deepEqual(poll().events,[]);
+  padButton(p,1,true);assert.deepEqual(poll().events,[{side:"home",action:"shootStart"}]);
+  assert.deepEqual(poll().events,[]);padButton(p,1,false);assert.deepEqual(poll().events,[{side:"home",action:"shootRelease"}]);
+  padButton(p,0,true);assert.equal(poll().events[0].action,"pass");assert.equal(poll().events.length,0);
+});
+
+test("pause, menu changes and focus loss cancel held input without phantom shot releases",()=>{
+  const driver=createGamepadDriver(),p=mockPad();const poll=context=>driver.poll([p],"solo",context,0);
+  poll("playing");padButton(p,1,true);assert.equal(poll("playing").events[0].action,"shootStart");
+  driver.reset();assert.equal(poll("menu").events.length,0);
+  padButton(p,1,false);assert.equal(poll("menu").events.length,0);
+  padButton(p,0,true);assert.equal(poll("menu").events[0].action,"confirm");
+  assert.equal(poll("playing").events.length,0);padButton(p,0,false);poll("playing");
+  p.axes[0]=1;assert.equal(poll("playing").inputs.home.x,1);
+  assert.equal(poll("blocked").inputs.home.x,0);assert.equal(poll("playing").inputs.home.x,0);
+  p.axes[0]=0;poll("playing");p.axes[0]=1;assert.equal(poll("playing").inputs.home.x,1);
+});
+
+test("two controllers keep independent seats across disconnect and index reuse",()=>{
+  const driver=createGamepadDriver(),home=mockPad(3),away=mockPad(8,"DualSense Wireless Controller");
+  driver.poll([null,home,away],"local2p","playing",0);
+  home.axes[0]=1;away.axes[1]=-1;padButton(away,7,true);
+  let frame=driver.poll([home,away],"local2p","playing",10);
+  assert.equal(frame.inputs.home.x,1);assert.equal(frame.inputs.away.y,-1);assert.equal(frame.inputs.away.sprint,true);
+  frame=driver.poll([away],"local2p","playing",20);
+  assert.deepEqual(frame.disconnected,["home"]);assert.equal(frame.infos[0].side,"away");assert.equal(frame.inputs.home.x,0);
+  const replacement=mockPad(3,"Nintendo Pro Controller");
+  frame=driver.poll([away,replacement],"local2p","playing",30);
+  assert.equal(frame.infos.find(i=>i.id===replacement.id).side,"home");
+  frame=driver.poll([mockPad(8,"Different controller"),replacement],"local2p","playing",40);
+  assert.deepEqual(frame.disconnected,["away"]);assert.equal(frame.inputs.away.y,0);
+});
+
+test("solo mode ignores the second controller's movement and match actions",()=>{
+  const driver=createGamepadDriver(),a=mockPad(),b=mockPad(1);
+  driver.poll([a,b],"solo","playing",0);b.axes[0]=1;padButton(b,0,true);
+  const frame=driver.poll([a,b],"solo","playing",16);
+  assert.equal(frame.inputs.away.x,0);assert.deepEqual(frame.events,[]);
+});
+
+test("menu directional repeat is time based and never sends match passes",()=>{
+  const driver=createGamepadDriver(),p=mockPad();driver.poll([p],"solo","menu",0);
+  padButton(p,13,true);const poll=now=>driver.poll([p],"solo","menu",now);
+  assert.equal(poll(0).events[0].action,"down");assert.equal(poll(250).events.length,0);
+  assert.equal(poll(400).events[0].action,"down");assert.equal(poll(559).events.length,0);
+  assert.equal(poll(560).events[0].action,"down");padButton(p,13,false);padButton(p,0,true);
+  assert.deepEqual(poll(600).events,[{side:"home",action:"confirm"}]);
+});
+
+test("nonstandard devices require validated mappings and obey custom axes and buttons",()=>{
+  const driver=createGamepadDriver(),p=mockPad();p.mapping="";
+  assert.equal(driver.poll([p],"solo","playing",0).infos[0].usable,false);
+  const profile={...STANDARD_PAD,axisX:2,axisY:3,invertX:true,buttons:{...STANDARD_PAD.buttons,pass:2,slide:0}};
+  const profiles=parsePadProfiles({[p.id]:profile,bad:{axisX:0,axisY:0},duplicate:{...profile,buttons:{...profile.buttons,pass:1}},invalid:{...profile,axisX:Infinity}});
+  assert.deepEqual(Object.keys(profiles),[p.id]);driver.poll([p],"solo","playing",1,profiles);
+  p.axes[2]=-1;padButton(p,2,true);const frame=driver.poll([p],"solo","playing",2,profiles);
+  assert.equal(frame.inputs.home.x,1);assert.deepEqual(frame.events,[{side:"home",action:"pass"}]);
+  assert.equal(frame.infos[0].custom,true);assert.equal(frame.infos[0].usable,true);
+});
+
+test("controller calibration tolerates idle trigger axes and rejects duplicate buttons",()=>{
+  const p=mockPad();p.mapping="";p.axes=[0,0,0,-1];
+  let c=beginPadCalibration({index:0,id:p.id,side:"home",family:"xbox",usable:false,custom:false});
+  const sample=()=>{c=advancePadCalibration(c,p);};
+  sample();sample();p.axes[0]=1;sample();assert.equal(c.step,1);
+  p.axes[0]=0;sample();p.axes[1]=1;sample();assert.equal(c.step,2);
+  p.axes[1]=0;sample();
+  const buttons=[2,1,3,0,6,4,7,9];
+  for(let i=0;i<buttons.length;i++) {
+    if(i===1) {padButton(p,2,true);sample();assert.equal(c.step,3);assert.ok(c.error.length);padButton(p,2,false);sample();}
+    padButton(p,buttons[i],true);sample();padButton(p,buttons[i],false);sample();
+  }
+  assert.equal(c.step,10);assert.equal(c.profile.axisX,0);assert.equal(c.profile.axisY,1);
+  PAD_ACTIONS.forEach((action,i)=>assert.equal(c.profile.buttons[action],buttons[i]));
+  assert.equal(Object.keys(parsePadProfiles({[p.id]:c.profile})).length,1);
+});
+
+test("gamepad analog input drives both athletes, sprint fatigue and set-piece aim",()=>{
+  const s=match(),i=input();s.gameMode="local2p";
+  const home=s.players.find(p=>p.id===s.selectedId),away=s.players.find(p=>p.id===s.selectedAwayId);
+  i.controllers={home:{x:.5,y:0,sprint:false},away:{x:0,y:-1,sprint:true}};
+  const homeStart=home.x,awayStart=away.y;
+  for(let n=0;n<60;n++){updateHuman(home,i,1/120,"local2p",1);updateHuman(away,i,1/120,"local2p",1);}
+  assert.ok(home.x>homeStart);assert.ok(away.y<awayStart);assert.ok(away.stamina<99);assert.ok(home.stamina>=99);
+  assert.ok(Math.abs(away.vy)>Math.abs(home.vx)*2);
+  defense.startSetPiece(s,"penalty","away",90,32);Object.assign(s.setPiece,{ready:true,timer:0,readyTimer:0});
+  const aim=s.setPiece.aimY;defense.updateSetPiece(s,i,.1,false);assert.ok(s.setPiece.aimY<aim);
+  s.chargingShot=true;s.shotCharge=.5;touch.clearMatchInput(i,s);
+  assert.deepEqual(i.controllers,{});assert.equal(s.chargingShot,false);assert.equal(s.shotCharge,0);
+});
+
+import { createRenderBudget } from '../lib/football-performance.ts';
+
+test('render budget degrades sustained slow frames and recovers gradually without changing requested quality', () => {
+  const budget = createRenderBudget();
+  let result;
+  for (let n=0;n<300;n++) result = budget.sample(1/25, 'ultra', true, true);
+  assert.ok(result.scale >= .65 && result.scale < .85);
+  assert.equal(result.quality, 'performance');
+  const low = result.scale;
+  for (let n=0;n<120;n++) result = budget.sample(1/60, 'ultra', true, true);
+  assert.equal(result.scale, low, 'brief frame-rate recovery must not oscillate quality');
+  for (let n=0;n<2200;n++) result = budget.sample(1/60, 'ultra', true, true);
+  assert.equal(result.scale, 1);
+  assert.equal(result.quality, 'ultra');
+  assert.deepEqual(budget.sample(1/25, 'balanced', false, true), {scale:1,quality:'balanced'});
+});
+
+test('hidden/paused and isolated stalled frames never lower the render budget', () => {
+  const budget = createRenderBudget();
+  for (let n=0;n<300;n++) budget.sample(.1, 'ultra', true, false);
+  assert.deepEqual(budget.sample(2, 'ultra', true, true), {scale:1,quality:'ultra'});
+  assert.deepEqual(parsePresentation({camera:'close',lighting:'day',automatic:false,radar:false}),
+    {camera:'close',lighting:'day',automatic:false,radar:false});
+});

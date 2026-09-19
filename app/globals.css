@@ -4121,3 +4121,93 @@ button:focus-visible { outline:2px solid #c5f58b; outline-offset:3px; }
   .touch-set-piece { display:block; }
   .match-clock span { display:block; font-size:7px; letter-spacing:.04em; }
 }
+
+/* Broadcast presentation; all input controls remain outside the central action. */
+.broadcast-tag { position:absolute; left:24px; top:18px; z-index:21; display:flex; align-items:center; gap:7px; color:#e7eff0; font-size:9px; font-weight:750; letter-spacing:.16em; }
+.broadcast-tag i { width:5px; height:5px; border-radius:50%; background:#c8f68a; }
+.broadcast-tag span { padding:3px 6px; background:#d8efbb; color:#182523; letter-spacing:.08em; border-radius:2px; font-size:8px; }
+.football-shell[data-screen="playing"] .game-brand { display:none; }
+.score-team { border-bottom:3px solid transparent; }
+.scoreboard > strong { font-variant-numeric:tabular-nums; }
+.match-clock b { font-variant-numeric:tabular-nums; }
+.pass-target { display:block; color:#cde8b4; font-size:9px; font-weight:550; max-width:210px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.presentation-controls { display:grid; gap:15px; margin:20px 0; padding:18px 0; border-top:1px solid #314450; border-bottom:1px solid #314450; }
+.presentation-controls label { display:grid; gap:9px; min-width:0; }
+.presentation-controls label > span { display:flex; align-items:center; gap:9px; font-size:13px; color:#d8e7e6; }
+.presentation-controls select { width:100%; min-height:46px; padding:10px 12px; color:#e6f1ed; background:#192d3a; border:1px solid #45606b; border-radius:8px; font-size:13px; }
+.presentation-controls p { color:#92a8b0; font-size:11px; line-height:1.6; }
+.mobile-player-readout { display:none; }
+.controller-strip { display:flex; gap:12px; width:100%; align-items:center; text-align:left; padding:13px 16px; margin:16px 0 4px; border:1px solid #344951; border-radius:10px; background:#162933; color:#dfece7; font-size:12px; }
+.controller-strip > span { flex:1; min-width:0; }
+.controller-strip small { display:block; color:#9aafb3; font-size:10px; margin-top:4px; }
+.controller-strip > svg { flex-shrink:0; color:#bfddac; }
+.controller-settings { margin:20px 0; padding:0 0 20px; border-bottom:1px solid #314450; }
+.controller-settings h3 { display:flex; align-items:center; gap:9px; font-size:14px; font-weight:650; color:#e3efea; }
+.controller-settings h3 span { margin-left:auto; padding:3px 8px; border:1px solid #40534a; color:#c5e3b1; font-size:11px; border-radius:6px; }
+.controller-settings > p { color:#9fb4b9; font-size:12px; line-height:1.6; margin-top:12px; }
+.controller-empty { border:1px dashed #3d5660; border-radius:10px; padding:16px; margin:14px 0; color:#dae8e3; font-size:12px; line-height:1.6; }
+.controller-empty small { display:block; color:#8fa9b2; font-size:11px; margin-top:6px; }
+.controller-card { border:1px solid #38505c; border-radius:12px; padding:16px; margin-top:14px; background:#132631; }
+.controller-card header { display:flex; gap:10px; align-items:center; justify-content:space-between; font-size:13px; }
+.controller-card header span { font-size:10px; padding:4px 7px; border-radius:5px; background:#453d27; color:#e5cd87; }
+.controller-card header span[data-ready="true"] { background:#253e34; color:#c2e4a6; }
+.controller-device-name { display:block; color:#8aa3ad; overflow-wrap:anywhere; font-size:10px; line-height:1.5; margin-top:8px; }
+.controller-mapping > p { color:#a8c3c6; font-size:11px; line-height:1.5; margin:12px 0; }
+.controller-mapping dl { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px 16px; }
+.controller-mapping dl > div { display:flex; gap:6px; align-items:center; justify-content:space-between; border-bottom:1px solid #2e424c; padding-bottom:6px; }
+.controller-mapping dt { color:#a7bbc2; font-size:10px; }
+.controller-mapping dd { font-size:11px; font-weight:700; color:#e2f3d3; text-align:right; }
+.controller-actions { display:flex; gap:8px; flex-wrap:wrap; margin-top:15px; }
+.controller-actions button, .controller-calibration button { min-height:44px; border:1px solid #546f72; border-radius:7px; padding:8px 12px; font-size:11px; color:#e0eae7; }
+.controller-actions button:hover, .controller-calibration button:hover { background:#29404c; }
+.controller-actions button:disabled { opacity:.45; }
+.controller-calibration { padding:16px 0 0; }
+.controller-calibration > span { display:block; color:#b3dc94; font-size:10px; letter-spacing:.1em; }
+.controller-calibration strong { display:block; font-size:15px; margin:10px 0; color:#edf6e9; }
+.controller-calibration p { font-size:12px; line-height:1.6; color:#b3c6ca; margin-bottom:12px; }
+.controller-notice { border-left:3px solid #d6c37d; padding:10px 12px; background:#3b382b; color:#e9dbb4 !important; font-size:12px; line-height:1.6; border-radius:0 6px 6px 0; }
+.pause-controller-help { margin:18px 0; display:grid; gap:10px; }
+.pause-controller-help p { display:flex; align-items:center; gap:8px; color:#c9e7b3; font-size:11px; line-height:1.6; }
+.pause-controller-help svg { flex-shrink:0; }
+[data-gamepad-focus="true"]:focus { outline:2px solid #c5f58b; outline-offset:4px; }
+@media (max-width:400px) { .controller-mapping dl { grid-template-columns:1fr; } .controller-card { padding:12px; } }
+@media (min-width:961px) {
+  .football-shell[data-screen="playing"] .scoreboard { left:24px; top:44px; transform:none; grid-template-columns:88px 34px 82px 34px 88px; min-height:43px; }
+}
+@media (pointer:coarse), (max-width:960px) {
+  .broadcast-tag { display:none; }
+  .mobile-player-readout { display:flex; position:absolute; top:61px; left:14px; z-index:18; gap:9px; align-items:center; max-width:calc(100% - 28px); font-size:9px; font-weight:600; color:#e7f4e9; text-shadow:0 1px 4px #000; }
+  .mobile-player-readout span { color:#c2e6a0; font-size:8px; }
+  .touch-button--pass small { max-width:52px; font-size:7px; line-height:1.2; }
+}
+@media (max-width:600px) and (orientation:portrait) {
+  .mobile-player-readout { top:72px; }
+  .presentation-controls select { font-size:16px; }
+}
+
+/* Tactical information stays readable without covering the action. */
+.match-radar { position:absolute; z-index:19; bottom:22px; left:50%; transform:translateX(-50%); width:190px; pointer-events:none; border:1px solid #acc6b52e; border-radius:8px; overflow:hidden; box-shadow:0 6px 25px #0004; }
+.match-radar canvas { display:block; width:100%; height:auto; }
+.match-radar > div { display:flex; justify-content:space-between; padding:4px 8px; background:#071317dc; font-size:12px; font-weight:700; letter-spacing:.05em; color:#e6eef0; }
+.match-radar span { display:flex; align-items:center; gap:5px; }
+.match-radar i { width:6px; height:6px; background:#d9ffa2; border-radius:50%; }
+.match-radar span:last-child i { background:#75ccff; }
+.match-radar ~ .shot-meter:not(.shot-meter--p1):not(.shot-meter--p2) { bottom:178px; }
+.presentation-switches { display:grid; gap:16px; margin:20px 0; }
+.presentation-switches label { display:flex; align-items:center; justify-content:space-between; gap:20px; }
+.presentation-switches span { display:grid; gap:3px; }
+.presentation-switches strong { font-size:14px; font-weight:600; }
+.presentation-switches small { font-size:12px; line-height:1.5; color:#9eb1bd; }
+@media (pointer:coarse), (max-width:900px) {
+  .match-radar { width:126px; bottom:22px; }
+  .match-radar > div { padding:2px 5px; }
+  .match-radar ~ .shot-meter:not(.shot-meter--p1):not(.shot-meter--p2) { bottom:134px; }
+}
+@media (max-width:600px) and (orientation:portrait) {
+  .match-radar { width:110px; bottom:220px; left:auto; right:14px; transform:none; }
+  .match-radar ~ .shot-meter:not(.shot-meter--p1):not(.shot-meter--p2) { bottom:150px; }
+}
+@media (max-height:520px) and (orientation:landscape) {
+  .match-radar { width:112px; bottom:16px; }
+  .match-radar ~ .shot-meter:not(.shot-meter--p1):not(.shot-meter--p2) { bottom:114px; }
+}
