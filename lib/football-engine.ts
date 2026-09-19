@@ -2732,7 +2732,7 @@ export function aiTarget(
           : 1
       : 1;
   const abilityBoost =
-    teamAbility(state, player.side) * playerAttributeFactor(player.pace) * (.78 + .22 * clamp(player.stamina / 45,0,1));
+    teamAbility(state, player.side) * playerAttributeFactor(player.pace);
   const bounds = roleProgressBounds(player.role, tactic);
   const baseProgress = attackProgressAt(
     state,
@@ -3563,7 +3563,7 @@ export function updateSetPiece(
     } else if (piece.side === "away" && state.chargingAwayShot) {
       state.awayShotCharge = clamp(state.awayShotCharge + dt * 0.82, 0, 1);
     }
-    if (piece.readyTimer > 6) {
+    if (piece.readyTimer > 6 && !state.training) {
       executeSetPiece(
         state,
         piece.kind === "throwIn" ||

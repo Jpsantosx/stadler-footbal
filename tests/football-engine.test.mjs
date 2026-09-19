@@ -1017,6 +1017,8 @@ test('training repeats drills without advancing a match clock and gives a real b
   }
   assert.equal(ready,true);assert.equal(bike.training.successes,1);
   const penalty=createTraining('penalty');assert.equal(penalty.setPiece.kind,'penalty');assert.equal(penalty.setPiece.ready,true);
+  for(let i=0;i<840;i++){updateMatch(penalty,idle,1/120,false);tickTraining(penalty);}
+  assert.equal(penalty.stats.homeShots,0);assert.equal(penalty.setPiece.kind,'penalty');
 });
 test('player career persists appearance, rewards completed fixtures once and makes upgrades affect match OVR',()=>{
   const c=newPlayerCareer(journeyDraft,'test-athlete');assert.deepEqual(parsePlayerCareer(JSON.parse(JSON.stringify(c))),c);
