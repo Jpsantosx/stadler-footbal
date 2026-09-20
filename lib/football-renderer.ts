@@ -241,49 +241,6 @@ function drawField(
   ctx.fill();
   ctx.restore();
 
-  for (let stripe = 0; stripe < 8; stripe += 1) {
-    ctx.beginPath();
-    traceWorldPolygon(ctx, view, [
-      [0, stripe * 8],
-      [100, stripe * 8],
-      [100, (stripe + 1) * 8],
-      [0, (stripe + 1) * 8],
-    ]);
-    ctx.fillStyle = stripe % 2 === 0 ? "#1c8748" : "#157b40";
-    ctx.fill();
-  }
-
-  if (quality !== "performance") {
-    for (let stripe = 0; stripe < 10; stripe += 1) {
-      ctx.beginPath();
-      traceWorldPolygon(ctx, view, [
-        [stripe * 10, 0],
-        [(stripe + 1) * 10, 0],
-        [(stripe + 1) * 10, 64],
-        [stripe * 10, 64],
-      ]);
-      ctx.fillStyle =
-        stripe % 2 === 0 ? "rgba(255,255,255,.018)" : "rgba(0,0,0,.018)";
-      ctx.fill();
-    }
-
-    const grassDetails = quality === "ultra" ? 320 : 150;
-    ctx.save();
-    ctx.lineWidth = 0.55;
-    for (let index = 0; index < grassDetails; index += 1) {
-      const worldX = ((index * 47 + 13) % 997) / 9.97;
-      const worldY = ((index * 83 + 29) % 631) / 9.86;
-      const grass = project(view, worldX, worldY);
-      ctx.strokeStyle =
-        index % 3 === 0 ? "rgba(220,255,226,.11)" : "rgba(1,45,21,.14)";
-      ctx.beginPath();
-      ctx.moveTo(grass.x, grass.y);
-      ctx.lineTo(grass.x + (index % 2 ? 1.1 : -0.8), grass.y - 1.8);
-      ctx.stroke();
-    }
-    ctx.restore();
-  }
-
   ctx.strokeStyle = "rgba(244,255,246,.82)";
   ctx.lineWidth = Math.max(1, view.height / 560);
   drawWorldLine(ctx, view, [
@@ -705,11 +662,8 @@ function drawPlayer(
   if (selected && quality !== "performance") {
     const label = player.name.toUpperCase();
     ctx.font = "800 " + Math.max(8, size * 0.58) + "px Arial";
-    const width = ctx.measureText(label).width + 12;
-    ctx.fillStyle = "rgba(4,9,12,.84)";
-    ctx.beginPath();
-    ctx.roundRect(-width / 2, size * 1.05, width, size * 0.9, 5);
-    ctx.fill();
+    ctx.shadowColor = "rgba(0,0,0,.7)";
+    ctx.shadowBlur = 2; ctx.shadowOffsetY = 1;
     ctx.fillStyle = "#fff";
     ctx.fillText(label, 0, size * 1.5);
   }
@@ -983,7 +937,7 @@ function drawTitleCeremony(ctx: CanvasRenderingContext2D, view: View, state: Mat
     drawStadium(background,view,"balanced"); drawField(background,view,"balanced",state);
     backdrop = { width: w, height: h, canvas }; ceremonyBackdrops.set(state,backdrop);
   }
-  ctx.save();ctx.filter="blur(3px)";ctx.drawImage(backdrop.canvas,0,0,w,h);ctx.restore();
+  ctx.save();ctx.filter="none";ctx.drawImage(backdrop.canvas,0,0,w,h);ctx.restore();
   ctx.fillStyle="rgba(4,12,22,.6)";ctx.fillRect(0,0,w,h);
   const glow=ctx.createRadialGradient(w*.5,floor-90,0,w*.5,floor-90,w*.55);
   glow.addColorStop(0,"rgba(216,184,92,.18)");glow.addColorStop(1,"rgba(216,184,92,0)");ctx.fillStyle=glow;ctx.fillRect(0,0,w,h);

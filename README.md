@@ -30,7 +30,7 @@ Validação: 71 testes determinísticos, incluindo uma partida completa com atle
 
 ## A atualização
 
-- **Estádio 3D:** gramado procedural de 2048×2048, faixas de corte, desgaste, sombras, iluminação dinâmica, arquibancadas, torcida, traves e redes. Jogadores articulados com ciclos contínuos de corrida, chute, domínio, carrinho e mergulho. Canvas 2D permanece como alternativa se WebGL não estiver disponível.
+- **Estádio 3D:** gramado procedural de 2048×2048, variação tonal suave, desgaste, sombras, iluminação dinâmica, arquibancadas, torcida, traves e redes. Jogadores articulados com ciclos contínuos de corrida, chute, domínio, carrinho e mergulho. Canvas 2D permanece como alternativa se WebGL não estiver disponível.
 - **Física:** integração fixa em 120 passos por segundo, aceleração e desaceleração, colisões ponderadas pela massa, efeito da bola, quique, atrito e domínio com possibilidade de toque pesado. Não há atração magnética da bola.
 - **IA:** cobertura por zona, marcação distribuída, leitura de linhas de passe, interceptação antecipada, apoios, ultrapassagens e condução em direção ao gol. Os atacantes preservam sua faixa de atuação; a postura muda a altura e a largura das linhas.
 - **Atributos:** OVR, função e perfil individual afetam velocidade, aceleração, precisão, domínio, desarme, resistência, força e tempo de decisão. Fadiga e moral da carreira alteram o rendimento.
@@ -46,12 +46,12 @@ Validação: 71 testes determinísticos, incluindo uma partida completa com atle
 - Goleiros antecipam o ângulo do atacante, reconhecem o chute com atraso por habilidade e escolhem mergulho, defesa alta ou abafada. Permanecem sujeitos à velocidade e ao alcance físico.
 - Finais da Copa disparam uma cerimônia de 17 segundos: reunião no pódio, capitão levantando a taça, confetes nas cores do campeão, flashes e fogos. Relógio, jogadores e placar ficam congelados. É possível pular ou rever; a prévia no menu da Copa não registra resultados.
 - Empates na Copa usam cobranças simuladas com precisão dos cobradores, fadiga e OVR do goleiro. O resultado dos pênaltis aparece separado do placar; posse de bola não desempata.
-- Gramado com diffuse 2048², mapas procedurais de normais e oclusão, máscara acumulada de tráfego e marcas de carrinho. Dois refletores projetam sombras dos membros articulados. Bloom nas luzes/taça, desfoque de movimento localizado no modo Ultra e profundidade de campo somente na cerimônia.
+- Gramado com diffuse 2048², mapas procedurais de normais e oclusão, máscara acumulada de tráfego e marcas de carrinho. Três cascatas projetam sombras dos jogadores. O renderizador entrega a cena diretamente, sem bloom, DoF, motion blur ou SSAO.
 - Celulares: menus roláveis, tabelas com rolagem interna, áreas seguras para recortes da tela e botões de ao menos 44 px. Na vertical, o campo ocupa uma área separada dos controles; na horizontal, o HUD é compacto. Analógico com zona morta, corrida na borda e chute ao soltar; cancelamento de toque não dispara chute. Pausa, rotação e perda de foco limpam os comandos.
 
 No celular, use **PASSE**, **BOTE**, **CARRINHO**, **TROCAR** e mantenha **CHUTE** pressionado para carregar. A tela cheia depende do suporte do navegador. Duplas continua sendo local, com teclado, controles ou toque para J1; não há partida online sincronizada.
 
-Os efeitos 3D usam [EffectComposer](https://threejs.org/docs/pages/EffectComposer.html), [UnrealBloomPass](https://threejs.org/docs/pages/UnrealBloomPass.html) e [BokehPass](https://threejs.org/docs/pages/BokehPass.html). O desfoque de movimento é uma aproximação localizada em tela, não um sistema de vetores temporais por pixel. Canvas 2D oferece apresentação alternativa da cerimônia e desgaste; normal maps, bloom e DOF reais exigem WebGL.
+A saída 3D usa renderização direta com antialiasing e ACES, sem passes de desfoque em nenhuma câmera, replay ou cerimônia. Canvas 2D continua como alternativa quando WebGL não está disponível.
 
 ## Atualização Broadcast
 
@@ -216,6 +216,15 @@ O criador e a partida usam `createFootballAthlete`: a cabeça tem cinco morph ta
 
 As superfícies anatômicas são procedurais, com pele e tecido separados, normal maps, roughness maps, cabelo em 24 planos recortados, deformação limitada do tecido por molas e difusão aproximada de contraluz na pele. A qualidade gráfica ainda depende de assets artísticos: **não são humanos escaneados, captura de movimento ou fotorrealismo AAA**. A simulação de tecido é simplificada e não inclui colisão completa entre todas as peças.
 
-O estádio usa três cascatas de sombras de 2048 px, lâminas de grama instanciadas perto da ação e torcida animada. Ultra adiciona SSAO; a câmera Pro/próxima e a cerimônia usam profundidade de campo. O modo desempenho reduz esses custos. Avisos centrais de ações rotineiras foram removidos; instruções ficam nos painéis específicos de treino/bolas paradas.
+O estádio usa três cascatas de sombras de 2048 px e torcida animada. A relva usa uma superfície PBR com textura de 2048 px e normal map suave, sem lâminas instanciadas ou blocos que acompanhem a câmera. Todas as câmeras têm saída nítida, sem desfoque. Avisos centrais de ações rotineiras foram removidos; instruções ficam nos painéis específicos de treino/bolas paradas.
 
 Tiros de meta aceitam apenas goleiros no motor e na interface. Saídas pela linha de fundo escolhem escanteio ou tiro de meta pelo último toque. Carrinhos têm estados de queda, deslize com atrito, impacto e recuperação, mantendo o controle bloqueado até o jogador se levantar.
+
+### Correção de nitidez e malha contínua
+
+- Removidos DoF, motion blur, bloom, SSAO e desfoques de fundo da interface; antialiasing permanece ativo.
+- Removida a camada de grama instanciada e os padrões em faixas. Normal map de 1024 px, sem repetição sobre o campo e com intensidade reduzida.
+- Etiquetas transparentes, texto branco com sombra discreta e tamanho ajustado à distância da câmera.
+- `football-rig.ts` importa a superfície original de `lib/assets/athlete-body.json` como um único `SkinnedMesh`, com dez ossos e cinco morph targets. Studio e partida usam o mesmo modelo. Não é um modelo escaneado nem um asset AAA externo.
+- `scripts/generate-athlete.py` reproduz o asset com NumPy; não é necessário executá-lo para compilar o jogo. A superfície tem juntas soldadas e bordas alinhadas aos limites dos uniformes.
+- Testes verificam conectividade, fechamento da superfície, pesos de skinning e deformação do joelho sem deslocar o tronco. A conferência visual em GPU real permanece necessária: o navegador de validação disponível não oferece WebGL.

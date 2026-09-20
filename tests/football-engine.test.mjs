@@ -1185,3 +1185,44 @@ test('slide tackles transition through fall, frictional slide, impact and recove
  for(let i=0;i<15;i++)updateSlide(p,.01);assert.equal(p.slideState.phase,'recover');
  for(let i=0;i<45;i++)updateSlide(p,.01);assert.equal(p.slideState,undefined);assert.equal(p.slideTimer,0);assert.equal(p.vx,0);
 });
+
+import { createRiggedBody } from '../lib/football-rig.ts';
+
+test('humanoid skin is one closed connected surface with normalized bone weights',()=>{
+ const rig=createRiggedBody(Array.from({length:5},()=>new THREE.MeshStandardMaterial()));
+ const g=rig.mesh.geometry,pos=g.getAttribute('position'),idx=g.index.array,edges=new Map(),parents=Array.from({length:pos.count},(_,i)=>i);
+ const find=i=>{while(parents[i]!==i){parents[i]=parents[parents[i]];i=parents[i];}return i;};
+ for(let i=0;i<idx.length;i+=3)for(let j=0;j<3;j++){
+  const a=idx[i+j],b=idx[i+(j+1)%3],key=a<b?`${a}:${b}`:`${b}:${a}`;
+  edges.set(key,(edges.get(key)??0)+1);parents[find(a)]=find(b);
+ }
+ assert.equal(new Set(parents.map((_,i)=>find(i))).size,1,'disconnected body pieces');
+ assert.ok([...edges.values()].every(n=>n===2),'holes or non-manifold joints');
+ const w=g.getAttribute('skinWeight'),bones=g.getAttribute('skinIndex');
+ for(let i=0;i<pos.count;i++){
+  assert.ok(Math.abs(w.getX(i)+w.getY(i)+w.getZ(i)+w.getW(i)-1)<1e-6);
+  for(let j=0;j<4;j++){assert.ok(w.array[i*4+j]>=0);assert.ok(bones.array[i*4+j]<rig.mesh.skeleton.bones.length);}
+ }
+ assert.equal(g.morphAttributes.position.length,5);assert.ok(rig.mesh.isSkinnedMesh);
+ rig.mesh.skeleton.dispose();g.dispose();rig.mesh.material.forEach(m=>m.dispose());
+});
+
+test('knee animation bends the continuous skin while keeping the torso anchored',()=>{
+ const rig=createRiggedBody(Array.from({length:5},()=>new THREE.MeshStandardMaterial()));
+ const pos=rig.mesh.geometry.getAttribute('position');
+ let foot=0,torso=0,footD=Infinity,torsoD=Infinity;
+ for(let i=0;i<pos.count;i++){
+  const a=Math.hypot(pos.getX(i)+.2,pos.getY(i)-.1,pos.getZ(i)-.12);
+  const b=Math.hypot(pos.getX(i),pos.getY(i)-1.9,pos.getZ(i)-.19);
+  if(a<footD){footD=a;foot=i;}if(b<torsoD){torsoD=b;torso=i;}
+ }
+ rig.root.updateMatrixWorld(true);rig.mesh.skeleton.update();
+ const before=rig.mesh.getVertexPosition(foot,new THREE.Vector3());
+ const fixed=rig.mesh.getVertexPosition(torso,new THREE.Vector3());
+ rig.knees[0].rotation.x=1;rig.root.updateMatrixWorld(true);rig.mesh.skeleton.update();
+ const after=rig.mesh.getVertexPosition(foot,new THREE.Vector3());
+ assert.ok(before.distanceTo(after)>.4);assert.ok(fixed.distanceTo(rig.mesh.getVertexPosition(torso,new THREE.Vector3()))<1e-6);
+ rig.mesh.morphTargetInfluences[rig.mesh.morphTargetDictionary.jaw]=.4;
+ assert.ok([...rig.mesh.geometry.getAttribute('normal').array].every(Number.isFinite));
+ rig.mesh.skeleton.dispose();rig.mesh.geometry.dispose();rig.mesh.material.forEach(m=>m.dispose());
+});

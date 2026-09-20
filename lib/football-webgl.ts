@@ -1,5 +1,4 @@
 import { CSM } from "three/addons/csm/CSM.js";
-import { createGrassBlades } from "./football-grass";
 import { slidePose } from './football-slide';
 import { createFootballAthlete, updateAthleteCloth, type Athlete } from "./football-athlete";
 import { proCameraPose } from "./football-camera";
@@ -48,11 +47,11 @@ function pitchTexture() {
       for (let x = 0; x < 2048; x++) {
         seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
         const grain = (seed >>> 25) / 6;
-        const mow = Math.floor(x / 171) % 2 ? 9 : 0;
+        const variation = 1.5 * Math.sin(x / 381 + Math.sin(y / 247)) + Math.sin(y / 563 + x / 891);
         const i = (y * 2048 + x) * 4;
-        pixels.data[i] = 36 + grain + mow;
-        pixels.data[i + 1] = 84 + grain + mow;
-        pixels.data[i + 2] = 39 + grain * 0.65 + mow;
+        pixels.data[i] = 36 + grain + variation;
+        pixels.data[i + 1] = 84 + grain + variation;
+        pixels.data[i + 2] = 39 + grain * 0.65 + variation;
         pixels.data[i + 3] = 255;
       }
     ctx.putImageData(pixels, 0, 0);
@@ -195,11 +194,10 @@ export function createStadiumRenderer(
   const pitch = new THREE.Mesh(
     new THREE.PlaneGeometry(100, 64),
     new THREE.MeshStandardMaterial({ map: pitchTexture(), roughness: 0.94,
-      normalMap: detailMaps.normal, normalScale: new THREE.Vector2(0.58, 0.58),
-      aoMap: detailMaps.ao, aoMapIntensity: 0.85 }),
+      normalMap: detailMaps.normal, normalScale: new THREE.Vector2(0.12, 0.12),
+      aoMap: detailMaps.ao, aoMapIntensity: 0.1 }),
   );
   const updateWear = createWearOverlay(scene);
-  const grass=createGrassBlades(scene);
   const titleStage = createTitleStage(scene);
   pitch.rotation.x = -Math.PI / 2;
   pitch.position.set(50, 0.04, 32);
@@ -386,6 +384,7 @@ export function createStadiumRenderer(
       materials = new Set<THREE.Material>(),
       geometries = new Set<THREE.BufferGeometry>();
     object.traverse((o) => {
+      if (o instanceof THREE.SkinnedMesh) o.skeleton.dispose();
       const m = o as THREE.Mesh;
       if (m.geometry) geometries.add(m.geometry);
       if (m.material)
@@ -406,7 +405,6 @@ export function createStadiumRenderer(
     resize(width, height, dpr) {
       renderer.setPixelRatio(Math.min(dpr, 2));
       renderer.setSize(width, height, false);
-      post.resize(width, height, dpr);
       viewportAspect = width / height;
       camera.aspect = viewportAspect;
       camera.updateProjectionMatrix();
@@ -431,7 +429,7 @@ export function createStadiumRenderer(
       const visualTime = state.elapsed + (state.celebration?.time ?? 0);
       const dt = clamp(visualTime - lastTime, 0, 0.1);
       lastTime = visualTime;
-      updateWear(state.pitchWear);grass.update(state,quality);crowdTime.value=state.elapsed+(state.celebration?.time??0);crowdReaction.value=state.celebration?1:state.netPulse;
+      updateWear(state.pitchWear);crowdTime.value=state.elapsed+(state.celebration?.time??0);crowdReaction.value=state.celebration?1:state.netPulse;
       titleStage.update(state);
       const ceremony = state.celebration;
       if (state.homeScore!==previousHomeScore) goalNet=attackDirectionFor(state,"home")>0?1:0;
@@ -532,6 +530,8 @@ export function createStadiumRenderer(
           (state.gameMode === "local2p" && p.id === state.selectedAwayId);
         a.ring.visible = selected && !ceremony;
         a.label.visible = selected && !ceremony;
+        const labelSize = THREE.MathUtils.clamp(camera.position.distanceTo(a.root.position) * .13, 1.2, 7);
+        a.label.scale.set(labelSize, labelSize, 1);
         if (pose) {
           a.body.rotation.set(0, 0, 0); a.body.position.y = 0; a.head.rotation.y = 0;
           for(const elbow of a.elbows) elbow.rotation.x = -.1;
@@ -565,11 +565,11 @@ export function createStadiumRenderer(
       ballLocator.position.set(state.ball.x, .08, state.ball.y);
       ballLocator.visible = !ceremony && height > 1.5;
       ballLocator.material.opacity = Math.min(.65, (height - 1.5) * .2);
-      post.render(state, quality, dt,presentation.camera==='pro'||presentation.camera==='close');
+      post.render();
     },
     dispose() {
       post.dispose();
-      csm.lights.forEach(light=>light.shadow.dispose());csm.remove();csm.dispose();grass.dispose();
+      csm.lights.forEach(light=>light.shadow.dispose());csm.remove();csm.dispose();
       key.shadow.dispose(); fill.shadow.dispose();
       disposeObject(scene);
       renderer.dispose();

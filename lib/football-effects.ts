@@ -1,22 +1,14 @@
 import * as THREE from "three";
-import { EffectComposer } from "three/addons/postprocessing/EffectComposer.js";
-import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
-import { SSAOPass } from "three/addons/postprocessing/SSAOPass.js";
-import { BokehPass } from "three/addons/postprocessing/BokehPass.js";
-import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js";
-import { ShaderPass } from "three/addons/postprocessing/ShaderPass.js";
-import { OutputPass } from "three/addons/postprocessing/OutputPass.js";
-import type { MatchState, Quality } from "./football-engine";
+import type { MatchState } from "./football-engine";
 import { WEAR_COLS, type PitchWear } from "./football-pitch";
 import { celebrationParticle, fireworkParticle } from "./football-presentation";
 
 export function grassDetailMaps() {
-  const size = 512, heights = new Float32Array(size * size);
+  const size = 1024, heights = new Float32Array(size * size);
   let seed = 7731;
   for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) {
     seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
-    heights[y * size + x] = Math.pow((seed >>> 16) / 65535, 2) * 0.55 +
-      Math.pow(Math.abs(Math.sin(x * 1.91 + Math.sin(y * 0.08) * 2)), 8) * 0.45;
+    heights[y * size + x] = (seed >>> 16) / 65535 * 0.2;
   }
   const normal = new Uint8Array(size * size * 4), ao = new Uint8Array(size * size * 4);
   const at = (x: number, y: number) => heights[((y + size) % size) * size + (x + size) % size];
@@ -24,13 +16,13 @@ export function grassDetailMaps() {
     const i = (y * size + x) * 4;
     const n = new THREE.Vector3((at(x - 1, y) - at(x + 1, y)) * 1.4, (at(x, y - 1) - at(x, y + 1)) * 1.4, 1).normalize();
     normal.set([(n.x * 0.5 + 0.5) * 255, (n.y * 0.5 + 0.5) * 255, (n.z * 0.5 + 0.5) * 255, 255], i);
-    const occlusion = 175 + at(x, y) * 80;
+    const occlusion = 250 + at(x, y) * 5;
     ao.set([occlusion, occlusion, occlusion, 255], i);
   }
   const make = (pixels: Uint8Array) => {
     const map = new THREE.DataTexture(pixels, size, size, THREE.RGBAFormat);
     map.wrapS = map.wrapT = THREE.RepeatWrapping;
-    map.repeat.set(20, 13);
+    map.repeat.set(1, 1);
     map.magFilter = THREE.LinearFilter; map.minFilter = THREE.LinearMipmapLinearFilter;
     map.generateMipmaps = true; map.anisotropy = 8; map.needsUpdate = true;
     return map; // Non-color data must stay in linear space.
@@ -70,63 +62,11 @@ export function createWearOverlay(scene: THREE.Scene) {
   };
 }
 
+// No image-space smoothing: every camera uses the same sharp scene output.
 export function createPostProcessing(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.PerspectiveCamera) {
-  const composer = new EffectComposer(renderer);
-  const render = new RenderPass(scene, camera);
-  const ao=new SSAOPass(scene,camera,1280,720,12);ao.kernelRadius=4;ao.minDistance=.001;ao.maxDistance=.04;
-  const bokeh = new BokehPass(scene, camera, { focus: 20, aperture: 0.0016, maxblur: 0.009 });
-  bokeh.materialBokeh.defines.PERSPECTIVE_CAMERA = 1;
-  const dofUniforms = bokeh.uniforms as Record<string, THREE.IUniform>;
-  const bloom = new UnrealBloomPass(new THREE.Vector2(1280, 720), 0.25, 0.45, 1.8);
-  const centers = Array.from({ length: 17 }, () => new THREE.Vector4(-10, -10, 0, 0));
-  const velocities = Array.from({ length: 17 }, () => new THREE.Vector2());
-  const blur = new ShaderPass({
-    uniforms: { tDiffuse: { value: null }, centers: { value: centers }, velocities: { value: velocities }, aspect: { value: 1 } },
-    vertexShader: "varying vec2 vUv; void main(){vUv=uv;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0);}",
-    fragmentShader: `uniform sampler2D tDiffuse; uniform vec4 centers[17]; uniform vec2 velocities[17]; uniform float aspect;
-      varying vec2 vUv;
-      void main(){float weight=0.0; vec2 motion=vec2(0.0);
-        for(int i=0;i<17;i++){vec2 d=(vUv-centers[i].xy)*vec2(aspect,1.0);
-          float mask=(1.0-smoothstep(centers[i].z*0.35, max(0.00001,centers[i].z),length(d)))*centers[i].w;
-          if(mask>weight){weight=mask;motion=velocities[i];}}
-        vec4 base=texture2D(tDiffuse,vUv);vec4 sum=base;
-        for(int j=1;j<5;j++){sum+=texture2D(tDiffuse,clamp(vUv-motion*(float(j)/4.0),vec2(0.0),vec2(1.0)));}
-        gl_FragColor=mix(base,sum/5.0,weight*0.55);
-      }`,
-  });
-  const output = new OutputPass();
-  composer.addPass(render); composer.addPass(ao); composer.addPass(blur); composer.addPass(bokeh); composer.addPass(bloom); composer.addPass(output);
-  const a = new THREE.Vector3(), b = new THREE.Vector3();
   return {
-    resize(width: number, height: number, dpr: number) {
-      composer.setPixelRatio(Math.min(dpr, 2)); composer.setSize(width, height);
-      dofUniforms.aspect.value = width / height; blur.uniforms.aspect.value = width / height;
-    },
-    render(state: MatchState, quality: Quality, dt: number, focusPlayer=false) {
-      const cinematic = !!state.celebration;
-      bloom.enabled = quality !== "performance"; bloom.strength = cinematic ? 0.36 : 0.22;
-      ao.enabled=quality==='ultra';
-      bokeh.enabled = (cinematic||focusPlayer) && quality !== "performance";
-      if (bokeh.enabled) {
-        const p=state.players.find(p=>p.id===(state.lockedPlayerId??state.selectedId));
-        a.set(cinematic?50:p?.x??state.ball.x,cinematic?3.3:1.8,cinematic?34:p?.y??state.ball.y).applyMatrix4(camera.matrixWorldInverse);
-        dofUniforms.focus.value = -a.z;
-      }
-      blur.enabled = !cinematic && !state.paused && quality === "ultra";
-      for (const c of centers) c.set(-10, -10, 0, 0);
-      if (blur.enabled) {
-        const objects = [...state.players.filter(p => !p.sentOff).map(p => ({ x:p.x, y:p.y, z:1.5, vx:p.vx, vy:p.vy, ball:false })), { ...state.ball, ball:true }];
-        objects.slice(0, 17).forEach((p, i) => {
-          const speed = Math.hypot(p.vx,p.vy), threshold = p.ball ? 30 : 14;
-          if (speed < threshold) return;
-          a.set(p.x,p.z,p.y).project(camera); b.set(p.x-p.vx/100,p.z,p.y-p.vy/100).project(camera);
-          centers[i].set(a.x*.5+.5,a.y*.5+.5,p.ball ? .014 : .021, Math.min(1,(speed-threshold)/15));
-          velocities[i].set((a.x-b.x)*.5,(a.y-b.y)*.5).clampLength(0, .012);
-        });
-      }
-      composer.render(dt);
-    },
-    dispose() { for (const pass of composer.passes) pass.dispose(); composer.dispose(); },
+    render() { renderer.render(scene, camera); },
+    dispose() {},
   };
 }
 
