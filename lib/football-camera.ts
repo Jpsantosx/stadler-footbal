@@ -1,6 +1,6 @@
 import type { MatchState } from "./football-engine.ts";
 
-export type CameraMode = "broadcast" | "tactical" | "close";
+export type CameraMode = "broadcast" | "tactical" | "close" | "pro";
 export type StadiumLight = "night" | "day";
 export type PresentationSettings = { camera: CameraMode; lighting: StadiumLight; automatic: boolean; radar: boolean };
 export type CameraFrame = { x: number; y: number; span: number };
@@ -10,6 +10,7 @@ const clamp = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, n
 /** The same field-space composition drives the WebGL and Canvas cameras. */
 export function cameraTarget(state: MatchState, mode: CameraMode, aspect: number): CameraFrame {
   if (mode === "tactical") return { x: 50, y: 32, span: Math.max(136, aspect * 80) };
+  if(mode==='pro'){const p=state.players.find(p=>p.id===(state.lockedPlayerId??state.selectedId));if(p)return {x:p.x,y:p.y,span:Math.max(50,aspect*32)};}
   const ball = state.ball;
   const lead = ball.owner === null ? 0.18 : 0.3;
   let x = clamp(ball.x + ball.vx * lead, 2, 98);
@@ -48,9 +49,19 @@ export function broadcastCameraPose(frame: CameraFrame, aspect: number) {
 export function parsePresentation(value: unknown): PresentationSettings {
   const saved = value && typeof value === "object" ? value as Record<string, unknown> : {};
   return {
-    camera: saved.camera === "close" || saved.camera === "tactical" ? saved.camera : "broadcast",
+    camera: saved.camera === "pro" || saved.camera === "close" || saved.camera === "tactical" ? saved.camera : "broadcast",
     lighting: saved.lighting === "day" ? "day" : "night",
     automatic: saved.automatic !== false,
     radar: saved.radar !== false,
   };
+}
+
+export function proCameraForward(s:MatchState){
+ const p=s.players.find(p=>p.id===(s.lockedPlayerId??s.selectedId));if(!p)return {x:1,y:0};
+ const attack=s.homeAttacksRight?1:-1,dx=s.ball.x-p.x,dy=s.ball.y-p.y,len=Math.hypot(dx,dy);
+ const x=attack*.7+(len>3?dx/len:p.facingX)*.3,y=(len>3?dy/len:p.facingY)*.3,n=Math.hypot(x,y);return {x:x/n,y:y/n};
+}
+export function proCameraPose(s:MatchState){
+ const p=s.players.find(p=>p.id===(s.lockedPlayerId??s.selectedId))!,f=proCameraForward(s);
+ return {x:p.x-f.x*11,y:6.4,z:p.y-f.y*11,lookX:p.x+f.x*9,lookZ:p.y+f.y*9};
 }

@@ -10,20 +10,24 @@ import { updateTitleCelebration, seekTitleCelebration } from "@/lib/football-pre
 import { createFramePresenter } from "@/lib/football-frame";
 import { createRenderBudget } from "@/lib/football-performance";
 import { drawRadar } from "@/lib/football-radar";
-import { DEFAULT_PRESENTATION, parsePresentation, type PresentationSettings, type CameraMode, type StadiumLight } from "@/lib/football-camera";
+import { DEFAULT_PRESENTATION, proCameraForward, parsePresentation, type PresentationSettings, type CameraMode, type StadiumLight } from "@/lib/football-camera";
 import { createStadiumRenderer } from "@/lib/football-webgl";
 import { CareerHub, TrainingHub, MatchCentre } from './football-hub';
 import { createTraining, tickTraining, resetTraining, trainingHint } from '@/lib/football-training';
 import { JOURNEY_KEY, parsePlayerCareer, makePlayerCareerMatch, settlePlayerCareer, type PlayerCareer } from '@/lib/football-player-career';
-import { setLiveTactics, substitutePlayer, type TrainingKind } from '@/lib/football-engine';
+import { configureMatchDuration, applyFormation, chooseSetPieceTaker, setLiveTactics, substitutePlayer, type TrainingKind } from '@/lib/football-engine';
 import { playStadiumReaction } from '@/lib/football-audio';
+import { strikePenalty, commitPenaltyDive } from '@/lib/football-penalties';
+import { drawCup, cupOpponent, advanceCup } from '@/lib/football-cup';
+import { playerRating } from '@/lib/football-match-detail';
+import { careerMatchStats } from '@/lib/football-player-career';
 import CareerOffice from "./career-office";
 import AdvancedControls from './advanced-controls';
 import { createGoalReplay } from '@/lib/football-replay';
 import { DEFAULT_CONTROLS, parseControls, shotModifiers, rumble, type ControlPreferences } from '@/lib/football-controls';
 import { performSkill, type ShotKind } from '@/lib/football-engine';
 import ControllerSettings from "./controller-settings";
-import { createGamepadDriver, beginPadCalibration, advancePadCalibration, parsePadProfiles, CALIBRATION_STEPS, padButtonLabel, type PadInfo, type PadProfiles, type PadCalibration, type PadSample } from "@/lib/football-gamepad";
+import { sonyPadPreset, createGamepadDriver, beginPadCalibration, advancePadCalibration, parsePadProfiles, CALIBRATION_STEPS, padButtonLabel, type PadInfo, type PadProfiles, type PadCalibration, type PadSample } from "@/lib/football-gamepad";
 import { navigateGamepadMenu } from "@/lib/football-gamepad-menu";
 
 import {
@@ -299,11 +303,17 @@ export default function FootballGame() {
   const [teamRegionFilter, setTeamRegionFilter] =
     useState<TeamRegionFilter>("all");
   const [paused, setPaused] = useState(false);
+  const [pauseTab,setPauseTab]=useState<'game'|'combos'>('game');
   const [knob, setKnob] = useState({ x: 0, y: 0 });
   const [leagueRows, setLeagueRows] = useState<LeagueRow[]>(() =>
     createLeagueRows("brasileirao"),
   );
   const [cupRound, setCupRound] = useState(0);
+  const [cupBracket,setCupBracket]=useState(()=>drawCup(TEAMS[0],competitionPoolFor(TEAMS[0],'cup','continental')));
+  const [matchMinutes,setMatchMinutes]=useState<1|3|5>(3);
+  const preMatchRef=useRef<MatchState|null>(null);
+  const [liveRating,setLiveRating]=useState<number|null>(null);
+  const [deadBall,setDeadBall]=useState<MatchState|null>(null);
   const [cupEliminated, setCupEliminated] = useState(false);
   const [career, setCareer] = useState<CareerState>(() =>
     createCareer(TEAMS[0]),
@@ -368,6 +378,7 @@ export default function FootballGame() {
     [awayFormation, awayTeam],
   );
   const availableAwayTeams = useMemo(() => {
+    if(competitionMode==='cup'){const opponent=cupOpponent(cupBracket);return opponent?[opponent]:[];}
     if (competitionMode === "league" || competitionMode === "career") {
       const fixture = nextLeagueFixture(leagueRows, homeTeam.id);
       if (!fixture) return [];
@@ -383,7 +394,7 @@ export default function FootballGame() {
       cupScope,
       selectedLeagueId,
     ).filter((t) => t.id !== homeTeam.id);
-  }, [competitionMode, cupScope, homeTeam, selectedLeagueId, leagueRows]);
+  }, [competitionMode, cupScope, homeTeam, selectedLeagueId, leagueRows,cupBracket]);
   useEffect(() => {
     if (
       screen !== "menu" ||
@@ -544,7 +555,8 @@ export default function FootballGame() {
     }
     if (competitionMode === "cup") {
       const advanced = state.winner === "home";
-      if (advanced) setCupRound((current) => Math.min(3, current + 1));
+      setCupBracket(current=>advanceCup(current,state.awayTeam.id,advanced,`${state.homeScore}–${state.awayScore}${state.shootout?` (${state.shootout.home}–${state.shootout.away} pên.)`:""}`));
+      if (advanced) setCupRound((current) => Math.min(4, current + 1));
       else setCupEliminated(true);
     }
     if (competitionMode === "career") {
@@ -621,6 +633,11 @@ export default function FootballGame() {
     setScreen(next);
   }, []);
 
+  const openPreMatch = () => {
+    const opponent=availableAwayTeams.find(t=>t.id===awayTeam.id)??availableAwayTeams[0];if(!opponent)return;
+    const state=createMatch(homeTeam,opponent,difficulty,false,gameMode,homeFormation,awayFormation,homeTactic,awayTactic,activeCareerSquad);
+    state.preMatch=true;state.paused=true;preMatchRef.current=state;setMatchCentre(structuredClone(state));
+  };
   const startMatch = useCallback(() => {
     if (
       !preparedMatchRef.current && competitionMode === "career" &&
@@ -629,7 +646,8 @@ export default function FootballGame() {
       setMarketOpen(true);
       return;
     }
-    const prepared = preparedMatchRef.current;
+    const draft=preMatchRef.current;
+    const prepared = preparedMatchRef.current ?? (draft && draft.homeTeam.id===TEAMS[homeIndex].id && draft.awayTeam.id===TEAMS[awayIndex]?.id ? draft : null);
     const matchHome = prepared?.homeTeam ?? TEAMS[homeIndex];
     const validOpponentPool = availableAwayTeams;
     const matchAway = prepared?.awayTeam ??
@@ -654,8 +672,10 @@ export default function FootballGame() {
         : undefined,
     );
     preparedMatchRef.current=null;
-    if (!prepared) next.cupRound = competitionMode === "cup" ? cupRound : null;
-    if(prepared){setHomeIndex(TEAMS.findIndex(t=>t.id===next.homeTeam.id));setAwayIndex(TEAMS.findIndex(t=>t.id===next.awayTeam.id));setGameMode('solo');}
+    next.preMatch=false;next.paused=false;preMatchRef.current=null;
+    configureMatchDuration(next,matchMinutes);
+    if (!next.training&&!next.careerFixture){next.cupRound = competitionMode === "cup" ? cupRound : null;next.cupFinal=competitionMode==='cup'&&cupRound===3;next.interactivePenalties=true;}
+    if(prepared&&!prepared.preMatch&&(prepared.training||prepared.careerFixture)){setHomeIndex(TEAMS.findIndex(t=>t.id===next.homeTeam.id));setAwayIndex(TEAMS.findIndex(t=>t.id===next.awayTeam.id));setGameMode('solo');}
     setSpecialMode(next.training?'training':next.careerFixture?'player':null);
     setTrainingStatus(trainingHint(next));setJourneyOpen(false);setTrainingOpen(false);setMatchCentre(null);
     const selected = getPlayer(next, next.selectedId);
@@ -673,7 +693,7 @@ export default function FootballGame() {
     setHud({
       homeScore: 0,
       awayScore: 0,
-      remaining: HALF_SECONDS,
+      remaining: next.remaining,
       half: 1,
       playerName: selected?.name ?? matchHome.name,
       playerNumber: selected?.number ?? 10,
@@ -706,6 +726,7 @@ export default function FootballGame() {
     awayTactic,
     competitionMode,
     cupRound,
+    matchMinutes,
     difficulty,
     gameMode,
     homeFormation,
@@ -873,7 +894,7 @@ export default function FootballGame() {
           else if(event.action==="pass"||event.action==="through")action.pass(event.side,event.action==="through");
           else if(event.action==="shootStart") {
             const owner=getPlayer(state,state.ball.owner);
-            if(owner?.side!==event.side && !state.setPiece && state.ball.z<.6)action.steal(event.side);
+            if(owner?.side!==event.side && !state.setPiece && !state.penaltyDuel && state.ball.z<.6)action.steal(event.side);
             else action.shootStart(event.side);
           }
           else if(event.action==="shootRelease")action.shootRelease(event.side);
@@ -927,6 +948,8 @@ export default function FootballGame() {
 
     const updateHud = (state: MatchState) => {
       setTrainingStatus(trainingHint(state));
+      const stat=careerMatchStats(state);setLiveRating(stat?playerRating(stat):null);
+      setDeadBall(state.setPiece||state.penaltyDuel?structuredClone(state):null);
       const selected = getPlayer(state, state.selectedId);
       const selectedAway = getPlayer(state, state.selectedAwayId);
       const aim=movementIntent(inputRef.current,"home",state.gameMode);
@@ -984,6 +1007,7 @@ export default function FootballGame() {
               presenter.capture(state);
               if(!demo)replayRef.current.record(state,1/120);
               const goalsBefore=state.homeScore+state.awayScore;
+              inputRef.current.cameraForward=stadium&&presentationRef.current.camera==='pro'&&!state.setPiece&&!state.penaltyDuel&&state.gameMode==='solo'?proCameraForward(state):undefined;
               updateMatch(state, inputRef.current, 1 / 120, demo);
               if(state.training)tickTraining(state);
               accumulator -= 1 / 120;
@@ -1039,7 +1063,7 @@ export default function FootballGame() {
           setFinalStats({ ...state.stats });
           setCupResult(state.cupRound === null ? null : {
             winner: state.winner, team: state.winner === "home" ? state.homeTeam : state.awayTeam,
-            final: state.cupRound === 2, shootout: state.shootout,
+            final: state.cupFinal ?? state.cupRound === 2, shootout: state.shootout,
           });
           setGameScreen(state.celebration ? "celebrating" : "finished");
           inputRef.current.keys.clear();
@@ -1080,6 +1104,7 @@ export default function FootballGame() {
       pass: (side = "home", through = false) => {
         const state = engineRef.current;
         if (!state || state.paused || screenRef.current !== "playing" || replayRef.current.active || editingTouchRef.current) return;
+        if(state.penaltyDuel){if(state.penaltyDuel.side!==side)commitPenaltyDive(state,side);else strikePenalty(state,side);return;}
         if (state.setPiece) {
           if (state.setPiece.side === side && state.setPiece.ready) {
             executeSetPiece(state, "pass");
@@ -1098,6 +1123,7 @@ export default function FootballGame() {
         if(side==='home'&&shotPointer.current!==null)shotKindsRef.current.home=controlsRef.current.touchShot;
         const state = engineRef.current;
         if (!state || state.paused || screenRef.current !== "playing" || replayRef.current.active || editingTouchRef.current) return;
+        if(state.penaltyDuel){if(state.penaltyDuel.side!==side){commitPenaltyDive(state,side);return;}if(side==='home')state.chargingShot=true;else state.chargingAwayShot=true;return;}
         if (state.setPiece) {
           if (
             state.setPiece.side === side &&
@@ -1128,6 +1154,7 @@ export default function FootballGame() {
         const charging =
           side === "home" ? state?.chargingShot : state?.chargingAwayShot;
         if (!state || !charging || state.paused || replayRef.current.active || editingTouchRef.current) return;
+        if(state.penaltyDuel){strikePenalty(state,side);return;}
         if (state.setPiece?.side === side && state.setPiece.ready) {
           executeSetPiece(state, "shot");
         } else {
@@ -1145,7 +1172,8 @@ export default function FootballGame() {
       switchPlayer: (side = "home") => {
         const state = engineRef.current;
         if (!state || state.paused || screenRef.current !== "playing" || replayRef.current.active || editingTouchRef.current) return;
-        if (state.setPiece) return;
+        if (state.setPiece) {if(state.setPiece.side===side)chooseSetPieceTaker(state);return;}
+        if(state.penaltyDuel)return;
         switchToClosestPlayer(state, side);
       },
       slide: (side = "home") => {
@@ -1169,6 +1197,7 @@ export default function FootballGame() {
 
     const onKeyDown = (event: KeyboardEvent) => {
       if (screenRef.current !== "playing" || editingTouchRef.current) return;
+      if(event.target instanceof HTMLElement&&event.target.matches("input,select,textarea"))return;
       if(replayRef.current.active){if(['Space','Escape','Enter'].includes(event.code)){event.preventDefault();skipReplay();}return;}
       const dialog = document.querySelector('[role="dialog"]');
       if (dialog && !dialog.classList.contains("pause-dialog")) return;
@@ -1275,6 +1304,8 @@ export default function FootballGame() {
     };
     const onFocus=()=>{pageFocused=true;gamepads.reset();};
     const onOrientation=()=>{const focused=pageFocused;onBlur();pageFocused=focused;};
+    const onPadConnect=()=>{gamepads.reset();setControllerNotice('Controle detectado. Solte os botões e pressione passe para ativar.');};
+    window.addEventListener('gamepadconnected',onPadConnect);
     window.addEventListener("focus",onFocus);
     window.addEventListener("blur", onBlur);
     const onVisibility = () => { if (document.hidden) onBlur(); else onFocus(); };
@@ -1288,6 +1319,7 @@ export default function FootballGame() {
       window.clearTimeout(readyTimer);
       observer.disconnect();
       stadium?.dispose();
+      window.removeEventListener('gamepadconnected',onPadConnect);
       window.removeEventListener("focus",onFocus);
       window.removeEventListener("blur", onBlur);
       document.removeEventListener("visibilitychange", onVisibility);
@@ -1339,6 +1371,7 @@ export default function FootballGame() {
       return;
     }
     if (mode === "cup") {
+      setCupBracket(drawCup(homeTeam,competitionPoolFor(homeTeam,mode,cupScope)));setCupRound(0);setCupEliminated(false);
       const opponent = competitionPoolFor(homeTeam, mode, cupScope).find(
         (team) => team.id !== homeTeam.id,
       );
@@ -1367,13 +1400,14 @@ export default function FootballGame() {
   };
 
   const resetCup = () => {
+    setCupBracket(drawCup(homeTeam,competitionPoolFor(homeTeam,"cup",cupScope)));
     setCupRound(0);
     setCupEliminated(false);
   };
 
   const selectCupScope = (scope: CupScope) => {
     setCupScope(scope);
-    resetCup();
+    setCupRound(0);setCupEliminated(false);setCupBracket(drawCup(homeTeam,competitionPoolFor(homeTeam,"cup",scope)));
     const opponent = competitionPoolFor(homeTeam, "cup", scope).find(
       (team) => team.id !== homeTeam.id,
     );
@@ -1388,6 +1422,7 @@ export default function FootballGame() {
       competitionMode === "league" || competitionMode === "career";
     if (championshipMode && nextTeam.leagueId !== selectedLeagueId) return;
     setHomeIndex(next);
+    if(competitionMode==='cup')setCupBracket(drawCup(nextTeam,competitionPoolFor(nextTeam,"cup",cupScope)));
     setCupRound(0);
     setCupEliminated(false);
     if (competitionMode === "career") setCareer(createCareer(nextTeam));
@@ -1865,10 +1900,10 @@ export default function FootballGame() {
         {screen==='playing'&&!replaying&&!editingTouch&&<div className="touch-specials">
           <button type="button" onPointerDown={e=>{e.currentTarget.setPointerCapture(e.pointerId);inputRef.current.touchShield=true;}} onPointerUp={()=>{inputRef.current.touchShield=false;}} onPointerCancel={()=>{inputRef.current.touchShield=false;}} onLostPointerCapture={()=>{inputRef.current.touchShield=false;}}>Proteger</button>
           <button type="button" onClick={()=>actionsRef.current.skill('rainbow')}>Chapéu</button><button type="button" onClick={()=>actionsRef.current.skill('feint')}>Finta</button><button type="button" onClick={()=>actionsRef.current.skill('bicycle')}>Bicicleta</button>
-          <details className="aerial-controls"><summary>Jogadas +</summary><div><button onClick={()=>actionsRef.current.skill('crossHigh')}>Cruz. alto · N</button><button onClick={()=>actionsRef.current.skill('crossLow')}>Rasteiro · M</button><button onClick={()=>actionsRef.current.skill('oneTwo')}>Tabelinha · Y</button><button onClick={()=>actionsRef.current.skill('header')}>Cabeceio</button><button onClick={()=>actionsRef.current.skill('volley')}>Voleio</button></div></details>
+          <details className="aerial-controls"><summary>Jogadas +</summary><div><button onClick={()=>actionsRef.current.skill('rainbow')}>Chapéu</button><button onClick={()=>actionsRef.current.skill('feint')}>Finta</button><button onClick={()=>actionsRef.current.skill('bicycle')}>Bicicleta</button><button onClick={()=>actionsRef.current.skill('crossHigh')}>Cruz. alto · N</button><button onClick={()=>actionsRef.current.skill('crossLow')}>Rasteiro · M</button><button onClick={()=>actionsRef.current.skill('oneTwo')}>Tabelinha · Y</button><button onClick={()=>actionsRef.current.skill('header')}>Cabeceio</button><button onClick={()=>actionsRef.current.skill('volley')}>Voleio</button></div></details>
           <select aria-label="Tipo de chute no celular" value={controls.touchShot} onChange={e=>saveControls({...controlsRef.current,touchShot:e.target.value as ShotKind})}><option value="auto">Chute normal</option><option value="placed">Colocado</option><option value="lob">Cavadinha</option><option value="power">Superchute</option></select>
         </div>}
-        {hud.message && screen === "playing" && specialMode!=='training' && (
+        {hud.message && screen === "playing" && specialMode!=='training' && !replaying && (
           <div className="match-message" data-set-piece={hud.setPieceKind !== null} role="status">
             {hud.message}
           </div>
@@ -1943,7 +1978,7 @@ export default function FootballGame() {
                   </span>
                 </button>
               </nav>
-              <div className="new-mode-buttons"><button onClick={()=>setJourneyOpen(true)}><span>CARREIRA DE JOGADOR</span><small>{journey?`${journey.name} · continuar jornada`:'Crie seu craque e conquiste títulos'}</small></button><button onClick={()=>setTrainingOpen(true)}><span>CENTRO DE TREINO</span><small>Dribles, faltas, pênaltis e bicicletas</small></button></div>
+              <button className="secondary-button prematch-button" onClick={openPreMatch}>ESCALAÇÃO E TÁTICA PRÉ-JOGO</button><div className="new-mode-buttons"><button onClick={()=>setJourneyOpen(true)}><span>CARREIRA DE JOGADOR</span><small>{journey?`${journey.name} · continuar jornada`:'Crie seu craque e conquiste títulos'}</small></button><button onClick={()=>setTrainingOpen(true)}><span>CENTRO DE TREINO</span><small>Dribles, faltas, pênaltis e bicicletas</small></button></div>
 
               {(competitionMode === "league" ||
                 competitionMode === "career") && (
@@ -2109,9 +2144,9 @@ export default function FootballGame() {
                             <TableCell className="league-position">
                               {index + 1}
                             </TableCell>
-                            <TableCell className="league-club">
+                            <TableCell><div className="league-club">
                               <TeamBadge team={team ?? homeTeam} compact />
-                              <span>{team?.name ?? row.teamId}</span>
+                              <span>{team?.name ?? row.teamId}</span></div>
                             </TableCell>
                             <TableCell>
                               {team ? lineupOverall(team) : "—"}
@@ -2146,7 +2181,7 @@ export default function FootballGame() {
                     <small>
                       {cupEliminated
                         ? "Eliminado"
-                        : cupRound === 3
+                        : cupRound === 4
                           ? "Campeão"
                           : "Em disputa"}
                     </small>
@@ -2168,23 +2203,24 @@ export default function FootballGame() {
                     </button>
                   </div>
                   <div className="cup-path">
-                    {["Quartas", "Semifinal", "Final", "Taça"].map(
+                    {["Oitavas", "Quartas", "Semifinal", "Final", "Taça"].map(
                       (round, index) => (
                         <span
                           key={round}
                           data-complete={index < cupRound}
                           data-current={!cupEliminated && index === cupRound}
                         >
-                          {index === 3 ? <Trophy /> : index + 1}
+                          {index === 4 ? <Trophy /> : index + 1}
                           <small>{round}</small>
                         </span>
                       ),
                     )}
                   </div>
+                  <details className="cup-bracket"><summary>Chave sorteada · 16 clubes</summary>{cupBracket.rounds.map((ties,r)=><div key={r}><b>{['Oitavas','Quartas','Semifinal','Final'][r]}</b>{ties.map(t=><p key={t.a}>{TEAMS.find(x=>x.id===t.a)?.short} × {TEAMS.find(x=>x.id===t.b)?.short} {t.score&&` · ${t.score}`} {t.winner&&` → ${TEAMS.find(x=>x.id===t.winner)?.short}`}</p>)}</div>)}</details>
                   <button type="button" className="cup-preview-button" onClick={previewCeremony}>
                     <Trophy size={15} /> Ver prévia da entrega da taça
                   </button>
-                  {(cupEliminated || cupRound === 3) && (
+                  {(cupEliminated || cupRound === 4) && (
                     <button
                       type="button"
                       className="inline-action"
@@ -2369,7 +2405,7 @@ export default function FootballGame() {
                   className="play-button"
                   disabled={
                     rendererStatus === "starting" || rendererStatus === "unavailable" || ((competitionMode === "league" ||
-                      competitionMode === "career") &&
+                      competitionMode === "career" || competitionMode === "cup") &&
                     availableAwayTeams.length === 0)
                   }
                   onClick={startMatch}
@@ -2525,7 +2561,7 @@ export default function FootballGame() {
                 </div>
               </div>
               {specialMode==='player'&&journey?.history[0]&&<p className="career-reward">Nota {journey.history[0].rating.toFixed(1)} · +{journey.history[0].xp} XP · {journey.points} pontos para evoluir</p>}
-              <button className="secondary-button" onClick={openMatchCentre}>ANÁLISE COMPLETA E MAPA DE CALOR</button>
+              <button className="secondary-button match-analysis-button" onClick={openMatchCentre}>ANÁLISE COMPLETA E MAPA DE CALOR</button>
               {specialMode==='player'&&<button className="play-button" onClick={()=>{goToMenu();setJourneyOpen(true);}}>VOLTAR À MINHA CARREIRA</button>}
               <div className="finish-actions">
                 {competitionMode === "friendly" && !specialMode && <button type="button" className="play-button" onClick={restart}>
@@ -2690,9 +2726,10 @@ export default function FootballGame() {
               <select aria-label="Câmera da partida" value={presentation.camera} onChange={e=>setPresentation(p=>({...p,camera:e.target.value as CameraMode}))}>
                 <option value="broadcast">Transmissão · acompanha a jogada</option>
                 <option value="tactical">Tática · visão do campo inteiro</option>
-                <option value="close">Próxima · foco no lance</option>
+                <option value="close">Próxima · foco no lance</option><option value="pro">Pro · nas costas do seu atleta (3D)</option>
               </select>
             </label>
+            <label>Duração da partida<select value={matchMinutes} onChange={e=>setMatchMinutes(Number(e.target.value) as 1|3|5)}><option value={1}>1 minuto</option><option value={3}>3 minutos</option><option value={5}>5 minutos</option></select></label>
             <label><span><Sun size={17} /> Iluminação do estádio</span>
               <select aria-label="Iluminação do estádio" value={presentation.lighting} onChange={e=>setPresentation(p=>({...p,lighting:e.target.value as StadiumLight}))}>
                 <option value="night">Noite · refletores</option>
@@ -2708,6 +2745,7 @@ export default function FootballGame() {
           <AdvancedControls value={controls} onChange={saveControls} canEdit={screen==='playing'&&!replaying}
             onEdit={()=>{setSettingsOpen(false);editingTouchRef.current=true;setEditingTouch(true);setPaused(false);if(engineRef.current)engineRef.current.paused=true;clearMatchInput(inputRef.current,engineRef.current);gamepadDriverRef.current?.reset();}}/>
           <ControllerSettings infos={padInfos} profiles={padProfiles} calibration={calibration} notice={controllerNotice}
+            onPreset={(info,raw)=>{const next={...padProfilesRef.current,[info.id]:sonyPadPreset(raw)};padProfilesRef.current=next;setPadProfiles(next);gamepadDriverRef.current?.reset();setControllerNotice('Perfil PlayStation aplicado. Teste passe e chute; use Remapear botões se o adaptador tiver outro layout.');try{window.localStorage.setItem('stadler-controllers-v1',JSON.stringify(next));}catch{/* Active for this session. */}}}
             onCalibrate={info=>{const next=beginPadCalibration(info);calibrationRef.current=next;setCalibration(next);gamepadDriverRef.current?.reset();setControllerNotice("");}}
             onCancel={()=>{calibrationRef.current=null;setCalibration(null);gamepadDriverRef.current?.reset();}}
             onReset={id=>{const next={...padProfilesRef.current};delete next[id];padProfilesRef.current=next;setPadProfiles(next);gamepadDriverRef.current?.reset();try{window.localStorage.setItem("stadler-controllers-v1",JSON.stringify(next));}catch{/* Session preference remains active. */}}}
@@ -2776,6 +2814,8 @@ export default function FootballGame() {
           </DialogHeader>
           {controllerNotice && <p className="controller-notice" role="status">{controllerNotice}</p>}
           {padInfos.some(p=>p.usable) && <div className="pause-controller-help">{padInfos.filter(p=>p.usable).map(p=><p key={p.index}><Gamepad2 size={16}/> J{p.side==="home"?1:2}: {p.custom?"Botões personalizados nas configurações":`${padButtonLabel(p.family,"pass")} passe · ${padButtonLabel(p.family,"shoot")} chute · ${padButtonLabel(p.family,"sprint")} correr · ${padButtonLabel(p.family,"pause")} continuar`}</p>)}</div>}
+          <div className="pause-tabs" role="tablist" aria-label="Abas da pausa"><button role="tab" aria-selected={pauseTab==='game'} onClick={()=>setPauseTab('game')}>Partida</button><button role="tab" aria-selected={pauseTab==='combos'} onClick={()=>setPauseTab('combos')}>Combos e controles</button></div>
+          {pauseTab==='game'&&<>
           <div className="pause-controls" aria-label="Controles da partida">
             <section>
               <strong>
@@ -2830,7 +2870,10 @@ export default function FootballGame() {
               </section>
             )}
           </div>
-          <button type="button" className="secondary-button" onClick={openMatchCentre}>TÁTICAS, SUBSTITUIÇÕES E ESTATÍSTICAS</button>
+
+          </>}
+          {pauseTab==='combos'&&<AdvancedControls value={controls} onChange={saveControls} canEdit={false} onEdit={()=>undefined}/>}
+          {pauseTab==='game'&&<button type="button" className="secondary-button" onClick={openMatchCentre}>TÁTICAS, SUBSTITUIÇÕES E ESTATÍSTICAS</button>}
           <p className="hub-note">N: cruzamento alto · M: rasteiro · Y: tabelinha · Chute com a bola no ar: cabeceio / voleio.</p>
           <button type="button" className="play-button" onClick={resume}>
             <Play fill="currentColor" size={19} /> CONTINUAR
@@ -2845,7 +2888,12 @@ export default function FootballGame() {
       </Dialog>
       <CareerHub open={journeyOpen} onOpenChange={setJourneyOpen} career={journey} onSave={saveJourney} onPlay={launchCareerMatch} saveFailed={journeySaveFailed}/>
       <TrainingHub open={trainingOpen} onOpenChange={setTrainingOpen} onPlay={launchTraining}/>
-      {matchCentre&&<MatchCentre state={matchCentre} onClose={()=>setMatchCentre(null)} onTactics={(side,tactic,pressure,width)=>{const state=engineRef.current;if(state&&setLiveTactics(state,side,tactic,pressure,width))setMatchCentre(structuredClone(state));}} onSub={(side,id,index)=>{const state=engineRef.current;if(!state)return false;const changed=substitutePlayer(state,side,id,index);setMatchCentre(structuredClone(state));return changed;}}/>}
+      {screen==='playing'&&!paused&&!replaying&&liveRating!==null&&<div className="career-live-rating" aria-label="Nota de desempenho"><small>SUA NOTA</small><b>{liveRating.toFixed(1)}</b><span>F / ✕ / A: pedir bola</span></div>}
+      {screen==='playing'&&!paused&&!replaying&&deadBall&&<aside className="setpiece-panel">
+        {deadBall.penaltyDuel?<><strong>{deadBall.penaltyDuel.single?'PÊNALTI':`PÊNALTIS · ${deadBall.penaltyDuel.home}–${deadBall.penaltyDuel.away}`}</strong><p>{deadBall.penaltyDuel.side==='home'?'Mire com ↑ ↓ / analógico. Segure e solte chute.':'Goleiro: ↑ ↓ escolhe o lado; chute confirma o salto.'}</p><div className="penalty-directions">{[-1,0,1].map(v=><button key={v} onClick={()=>{const st=engineRef.current;if(st?.penaltyDuel){if(st.penaltyDuel.side==='home')st.penaltyDuel.aim=32+v*6;else commitPenaltyDive(st,'home',v);}}}>{v<0?'Esquerda':v>0?'Direita':'Centro'}</button>)}</div><label>Altura<input type="range" min="0.4" max="4.8" step=".1" value={deadBall.penaltyDuel.height} onChange={e=>{if(engineRef.current?.penaltyDuel)engineRef.current.penaltyDuel.height=Number(e.target.value);}}/></label></>:<><strong>{setPieceName(deadBall.setPiece!.kind)}</strong><label>Cobrador<select value={deadBall.setPiece!.takerId} disabled={deadBall.setPiece!.side==='away'&&deadBall.gameMode!=='local2p'} onChange={e=>{if(engineRef.current)chooseSetPieceTaker(engineRef.current,Number(e.target.value));}}>{deadBall.players.filter(p=>p.side===deadBall.setPiece!.side&&!p.sentOff&&p.role!=='GK').sort((a,b)=>b.shooting-a.shooting).map(p=><option key={p.id} value={p.id}>{p.name} · chute {p.shooting} · passe {p.passing}</option>)}</select></label><p>↑ ↓ mira · ← → curva/profundidade · Q / L1 troca cobrador</p><label>Curva<input type="range" min="-1" max="1" step=".05" value={deadBall.setPiece!.curve??0} onChange={e=>{if(engineRef.current?.setPiece)engineRef.current.setPiece.curve=Number(e.target.value);}}/></label></>}
+        <progress aria-label="Força da cobrança" max={1} value={deadBall.shotCharge}/>
+      </aside>}
+      {matchCentre&&<MatchCentre state={matchCentre} onFormation={(side,formation)=>{const state=matchCentre.preMatch?preMatchRef.current:engineRef.current;if(state&&applyFormation(state,side,formation))setMatchCentre(structuredClone(state));}} onClose={()=>setMatchCentre(null)} onTactics={(side,tactic,pressure,width)=>{const state=matchCentre.preMatch?preMatchRef.current:engineRef.current;if(state&&setLiveTactics(state,side,tactic,pressure,width))setMatchCentre(structuredClone(state));}} onSub={(side,id,index)=>{const state=matchCentre.preMatch?preMatchRef.current:engineRef.current;if(!state)return false;const changed=substitutePlayer(state,side,id,index);setMatchCentre(structuredClone(state));return changed;}}/>}
     </main>
   );
 }

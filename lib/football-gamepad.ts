@@ -17,6 +17,7 @@ const pressed = (pad: PadSample, index: number) => !!pad.buttons[index]?.pressed
 
 export function padFamily(id: string): PadFamily {
   if (/playstation|dualsense|dualshock|sony|054c/i.test(id)) return "playstation";
+  if (/^wireless controller$/i.test(id)) return "playstation";
   if (/nintendo|joy.?con|switch|057e|pro controller/i.test(id)) return "nintendo";
   if (/xbox|xinput|microsoft|045e/i.test(id)) return "xbox";
   return "generic";
@@ -87,7 +88,7 @@ export function createGamepadDriver() {
         if(slot.context!==tag) { slot.context=tag;slot.armed=false;slot.direction=""; }
         if(!usable || context==="blocked") { slot.previous=current;slot.armed=false;continue; }
         if(!slot.armed) {
-          slot.armed=!current.some(Boolean) && Math.hypot(stick.x,stick.y)<.05;
+          slot.armed=!PAD_ACTIONS.some(a=>current[profile.buttons[a]]) && Math.hypot(stick.x,stick.y)<.05;
           slot.previous=current;continue;
         }
         const down=(action: PadAction)=>current[profile.buttons[action]] && !slot.previous[profile.buttons[action]];
@@ -158,3 +159,6 @@ export function advancePadCalibration(session: PadCalibration, pad: PadSample): 
     return {...session,neutral:true,error:"Esse botão já foi usado. Escolha outro."};
   return {...session,step:session.step+1,neutral:true,error:"",profile:{...session.profile,buttons:{...session.profile.buttons,[action]:held}}};
 }
+
+/** Explicit fallback for raw Sony HID layouts; calibration remains available for adapters. */
+export function sonyPadPreset(raw=false):PadProfile{return {axisX:0,axisY:1,invertX:false,invertY:false,buttons:raw?{pass:1,shoot:2,through:3,slide:0,steal:6,switch:4,sprint:7,pause:9}:{...STANDARD_PAD.buttons}};}

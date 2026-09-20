@@ -1,3 +1,5 @@
+import { athleteMaterials, hairCards } from "./football-materials";
+import { proCameraPose } from "./football-camera";
 import { TRAINING_GATES } from "./football-training";
 import * as THREE from "three";
 import { cameraTarget, stepCamera, broadcastCameraPose, DEFAULT_PRESENTATION, type PresentationSettings, type CameraFrame } from "./football-camera";
@@ -5,6 +7,7 @@ import { athletePose, createLocomotion, type Locomotion } from "./football-anima
 import { grassDetailMaps, createWearOverlay, createPostProcessing, createTitleStage } from "./football-effects";
 import { celebrationPose, celebrationShot } from "./football-presentation";
 import {
+  setPieceTrajectory,
   clamp,
   attackDirectionFor,
   type MatchState,
@@ -168,6 +171,9 @@ function kitTexture(team: Team, player: Player) {
 }
 
 type Athlete = {
+  skin: THREE.MeshPhysicalMaterial;
+  shirt: THREE.MeshPhysicalMaterial;
+  hairCards: THREE.Group;
   identity: string;
   root: THREE.Group;
   body: THREE.Group;
@@ -438,6 +444,8 @@ export function createStadiumRenderer(
   scene.add(ballLocator);
   const trainingMarkers=TRAINING_GATES.map(g=>{const ring=new THREE.Mesh(new THREE.RingGeometry(2.5,3,40),new THREE.MeshBasicMaterial({color:0xa5ff64,side:THREE.DoubleSide,transparent:true,opacity:.8}));ring.rotation.x=-Math.PI/2;ring.position.set(g.x,.04,g.y);scene.add(ring);return ring;});
   let previousNetPulse = 0;
+  const guideGeometry=new THREE.BufferGeometry();guideGeometry.setAttribute('position',new THREE.BufferAttribute(new Float32Array(55*3),3));
+  const guide=new THREE.Line(guideGeometry,new THREE.LineBasicMaterial({color:'#bfff71',transparent:true,opacity:.85,depthTest:false}));guide.renderOrder=8;scene.add(guide);
   const athletes = new Map<number, Athlete>();
   let matchIdentity: MatchState | null = null;
   let lastTime = 0;
@@ -447,37 +455,38 @@ export function createStadiumRenderer(
       body = new THREE.Group();
     root.add(body);
     scene.add(root);
-    const skin = standard(
-      p.appearance?.skin ?? ["#d9a47e", "#ac7551", "#774e35", "#bf8b66"][p.id % 4],
-    );
-    const shirt = new THREE.MeshStandardMaterial({
-      map: kitTexture(team, p),
-      roughness: 0.98,
-    });
+    const {skin,shirt}=athleteMaterials(p.appearance?.skin ?? ["#d9a47e", "#ac7551", "#774e35", "#bf8b66"][p.id%4],kitTexture(team,p),p.id);
     const torso = new THREE.Mesh(
-      new THREE.CylinderGeometry(.38, .29, .85, 18, 3),
+      new THREE.CylinderGeometry(.37, .29, p.appearance?.tucked===false?.96:.85, 28, 12),
       shirt,
     );
+    const vertices=torso.geometry.getAttribute('position');
+    for(let i=0;i<vertices.count;i++){const y=vertices.getY(i),x=vertices.getX(i),z=vertices.getZ(i);const crease=1+Math.sin(y*28+x*13)*.015;vertices.setXYZ(i,x*crease,y,z*crease);}torso.geometry.computeVertexNormals();
     torso.scale.z = 0.7;
     torso.position.y = 1.75;
     body.add(torso);
     torso.castShadow = true;
+    const pelvis=new THREE.Mesh(new THREE.SphereGeometry(.3,24,16),standard(team.shorts));pelvis.scale.set(1.04,.6,.75);pelvis.position.y=1.27;body.add(pelvis);
     const headGroup = new THREE.Group(); headGroup.position.y = 2.48; body.add(headGroup);
     const head = new THREE.Mesh(new THREE.SphereGeometry(.255, 20, 16), skin);
-    head.scale.set(.86, 1.15, .94); headGroup.add(head);
+    head.scale.set(.86*(.92+(p.appearance?.jaw??1)*.08), 1.15, .94); headGroup.add(head);
     const neck = new THREE.Mesh(new THREE.CylinderGeometry(.12,.13,.2,12),skin);
     neck.position.y=-.3; headGroup.add(neck);
     const hair = new THREE.Mesh(new THREE.SphereGeometry(.258,18,12,0,Math.PI*2,0,Math.PI*.48),
       standard(p.appearance?.hair ?? ["#251b17","#3e2a1d","#171719","#60452d"][p.id%4]));
     hair.position.y=.04;hair.scale.set(p.appearance?.style==='mohawk'?.28:.9,p.appearance?.style==='mohawk'?1.5:1.05,.96);hair.visible=p.appearance?.style!=='bald';headGroup.add(hair);
+    const cards=hairCards(p.appearance?.hair??'#251b17',p.appearance?.style??'short',p.id);headGroup.add(cards);
+    const jaw=new THREE.Mesh(new THREE.SphereGeometry(.17,20,12),skin);jaw.scale.set((p.appearance?.jaw??1)*1.04,.55,.94);jaw.position.set(0,-.17,.03);headGroup.add(jaw);
+    const mouth=new THREE.Mesh(new THREE.CapsuleGeometry(.012,.075*(p.appearance?.mouth??1),4,12),standard('#8d5144'));mouth.rotation.z=Math.PI/2;mouth.position.set(0,-.13,.215);headGroup.add(mouth);
+    if(p.appearance?.beard&&p.appearance.beard!=='none'){const beard=new THREE.Mesh(new THREE.SphereGeometry(.18,20,12,0,Math.PI*2,Math.PI*.35,Math.PI*.6),new THREE.MeshStandardMaterial({color:p.appearance.hair,roughness:1,transparent:true,opacity:p.appearance.beard==='stubble'?.38:1}));beard.scale.set(1,.8,.96);beard.position.set(0,-.1,.055);headGroup.add(beard);}
     body.scale.setScalar((p.appearance?.height??180)/180);
     const nose = new THREE.Mesh(new THREE.SphereGeometry(.06,8,6),skin);
-    nose.position.set(0,-.01,.235);nose.scale.set(.55,1,1);headGroup.add(nose);
+    nose.position.set(0,-.01,.235);nose.scale.set(.55*(p.appearance?.nose??1),1,(p.appearance?.nose??1));headGroup.add(nose);
     for(const side of [-1,1]) {
       const ear = new THREE.Mesh(new THREE.SphereGeometry(.058,8,6),skin);
       ear.position.set(side*.23,0,0);ear.scale.set(.7,1,.55);headGroup.add(ear);
       const eye = new THREE.Mesh(new THREE.SphereGeometry(.023,8,6),standard("#211c1b"));
-      eye.position.set(side*.085,.055,.211);headGroup.add(eye);
+      eye.scale.setScalar(p.appearance?.eyeSize??1);eye.position.set(side*.085*(p.appearance?.eyes??1),.055,.211);headGroup.add(eye);
     }
     const collar = new THREE.Mesh(new THREE.TorusGeometry(.16,.035,8,20), standard(team.secondary));
     collar.rotation.x=Math.PI/2;collar.position.y=2.18;body.add(collar);
@@ -487,7 +496,7 @@ export function createStadiumRenderer(
       elbows: THREE.Group[] = [];
     for (const side of [-1, 1]) {
       const leg = new THREE.Group();
-      leg.position.set(side * 0.22, 1.35, 0);
+      leg.position.set(side * 0.19, 1.13, 0);
       body.add(leg);
       legs.push(leg);
       const thigh = new THREE.Mesh(
@@ -504,9 +513,9 @@ export function createStadiumRenderer(
         new THREE.CapsuleGeometry(0.1, 0.36, 4, 8),
         standard(p.role === "GK" ? "#abc949" : team.socks),
       );
-      shin.position.y = -0.22;
+      if(p.appearance?.socks==='low'){shin.scale.y=.6;shin.position.y=-.32;const calf=new THREE.Mesh(new THREE.CapsuleGeometry(.105,.19,6,12),skin);calf.position.y=-.07;knee.add(calf);}else shin.position.y = -0.22;
       knee.add(shin);
-      const boot=new THREE.Mesh(new THREE.CapsuleGeometry(.095,.22,5,12),standard(p.id%3 ? "#dce2d4" : "#eab063"));
+      const boot=new THREE.Mesh(new THREE.CapsuleGeometry(.095,.22,5,12),standard(p.appearance?.boots??(p.id%3 ? "#dce2d4" : "#eab063")));
       boot.rotation.x=Math.PI/2;boot.position.set(0,-.49,.1);knee.add(boot);
       box(.14,.025,.045,0,-.41,.11,"#344a54",knee);
       const arm = new THREE.Group();
@@ -527,6 +536,7 @@ export function createStadiumRenderer(
       forearm.position.set(0, -.19, 0);
       elbow.add(forearm);
       const hand = new THREE.Mesh(new THREE.SphereGeometry(.105,10,8),skin); hand.position.set(0,-.4,0); hand.scale.set(.75,1,.65); elbow.add(hand);
+      if(p.appearance?.wristband){const band=new THREE.Mesh(new THREE.CylinderGeometry(.098,.098,.09,16),standard('#f2efe7'));band.position.y=-.32;elbow.add(band);}
       if (p.role === "GK") box(.2,.22,.14,0,-.4,.03,"#eceddb",elbow);
     }
     body.traverse(object => {
@@ -557,7 +567,7 @@ export function createStadiumRenderer(
     label.scale.set(6, 6, 1);
     label.position.y = 4.6;
     root.add(label);
-    return { identity:p.squadId, root, body, legs, knees, arms, elbows, head:headGroup, ring, label, motion:createLocomotion(p) };
+    return { skin,shirt,hairCards:cards,identity:p.squadId, root, body, legs, knees, arms, elbows, head:headGroup, ring, label, motion:createLocomotion(p) };
   }
   function disposeObject(object: THREE.Object3D) {
     const textures = new Set<THREE.Texture>(),
@@ -616,10 +626,15 @@ export function createStadiumRenderer(
       previousHomeScore=state.homeScore;previousAwayScore=state.awayScore;
       if (ceremony) {
         const shot = celebrationShot(ceremony.time);
-        // A close broadcast lens keeps the complete podium in frame.
-        const ceremonyDistance=Math.max(34,34/(2*viewportAspect*Math.tan(21*Math.PI/180)));
-        camera.position.set(50 + (shot.x - 50) * .3, 3 + ceremonyDistance*.3, 32+ceremonyDistance*.954);
-        camera.fov = 42; camera.zoom = 1; camera.lookAt(50, 2.7, 32);
+        const portraitPull=viewportAspect<1?1.5:1;
+        camera.position.set(shot.x,shot.y,32+(shot.z-32)*portraitPull);
+        camera.fov = 42; camera.zoom = 1; camera.lookAt(50, ceremony.time<4.5?1.8:3.5, 33);
+      } else if(state.penaltyDuel){
+        camera.position.set(77,9,32);camera.fov=48;camera.zoom=1;camera.lookAt(99,1.5,32);
+      } else if(presentation.camera==='pro'&&state.gameMode!=='local2p'&&!state.replayView&&!state.setPiece){
+        const pose=proCameraPose(state);const target=new THREE.Vector3(pose.x,pose.y,pose.z);
+        if(cameraMode!=='pro')camera.position.copy(target);else camera.position.lerp(target,1-Math.exp(-7*dt));cameraMode='pro';
+        camera.fov=62;camera.zoom=1;camera.lookAt(pose.lookX,1.8,pose.lookZ);
       } else {
         const target = cameraTarget(state, presentation.camera, viewportAspect);
         if (cameraMode !== presentation.camera) framing = target;
@@ -659,6 +674,9 @@ export function createStadiumRenderer(
         a.root.visible = ceremony ? !!pose : !p.sentOff;
         a.root.position.set(pose?.x ?? p.x, pose?.height ?? 0, pose?.y ?? p.y);
         const poseFrame=athletePose(p,a.motion,dt);
+        const sweat=clamp((100-p.stamina)/80,0,1);a.skin.clearcoat=sweat*.8;a.skin.roughness=.8-sweat*.35;
+        a.shirt.userData.dirt.value=p.dirt??0;
+        a.hairCards.rotation.x=Math.sin(state.elapsed*7+p.id)*Math.hypot(p.vx,p.vy)*.002;a.hairCards.visible=quality!=='performance';
         a.body.rotation.set(poseFrame.lean,poseFrame.heading,poseFrame.bank);
         a.body.position.y=poseFrame.bob;
         for(let limb=0;limb<2;limb++) {
@@ -708,11 +726,15 @@ export function createStadiumRenderer(
           a.arms[0].rotation.z = pose.captain ? -.3 : .4;
           a.arms[1].rotation.z = -a.arms[0].rotation.z;
           if (pose.captain) {
-            titleStage.trophy.position.set(pose.x, pose.height + 2.5 + pose.lift * 1.3, pose.y + .55);
+            a.root.updateMatrixWorld(true);
+            const left=a.elbows[0].localToWorld(new THREE.Vector3(0,-.4,0)),right=a.elbows[1].localToWorld(new THREE.Vector3(0,-.4,0));
+            titleStage.trophy.position.copy(left.add(right).multiplyScalar(.5));titleStage.trophy.position.y-=.82;
             titleStage.trophy.rotation.set(0, Math.sin(ceremony!.time)*.05, 0);
           }
         }
       }
+      const guidePoints=setPieceTrajectory(state);guide.visible=guidePoints.length>0&&!ceremony;
+      const guidePositions=guideGeometry.getAttribute('position');guidePoints.forEach((p,i)=>guidePositions.setXYZ(i,p.x,p.z+.25,p.y));guidePositions.needsUpdate=true;guideGeometry.setDrawRange(0,guidePoints.length);guideGeometry.computeBoundingSphere();
       ball.position.set(state.ball.x, state.ball.z + 0.52, state.ball.y);
       ball.rotation.x += state.ball.vy * dt / .52;
       ball.rotation.z -= state.ball.vx * dt / .52;

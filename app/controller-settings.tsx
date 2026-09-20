@@ -5,9 +5,9 @@ import { CALIBRATION_STEPS, PAD_ACTIONS, padButtonLabel, type PadCalibration, ty
 const names = { xbox:"Xbox", playstation:"PlayStation", nintendo:"Nintendo", generic:"Controle" };
 const actions = { pass:"Passe", shoot:"Segurar / soltar chute", through:"Enfiada", slide:"Carrinho", steal:"Bote", switch:"Trocar jogador", sprint:"Correr", pause:"Pausa / continuar" };
 
-export default function ControllerSettings({ infos, profiles, calibration, notice, onCalibrate, onCancel, onReset }: {
+export default function ControllerSettings({ infos, profiles, calibration, notice, onPreset, onCalibrate, onCancel, onReset }: {
   infos: PadInfo[]; profiles: PadProfiles; calibration: PadCalibration | null; notice: string;
-  onCalibrate:(info:PadInfo)=>void; onCancel:()=>void; onReset:(id:string)=>void;
+  onPreset:(info:PadInfo,raw:boolean)=>void;onCalibrate:(info:PadInfo)=>void; onCancel:()=>void; onReset:(id:string)=>void;
 }) {
   return <section className="controller-settings" aria-label="Controles conectados">
     <h3><Gamepad2 size={19} /> Controles de videogame <span>{infos.length}/2</span></h3>
@@ -26,6 +26,7 @@ export default function ControllerSettings({ infos, profiles, calibration, notic
         {info.usable && <div className="controller-mapping"><p>Analógico esquerdo: mover e mirar · Direcional: navegar</p>
           <dl>{PAD_ACTIONS.map(action=><div key={action}><dt>{actions[action]}</dt><dd>{info.custom?"Botão "+(profiles[info.id].buttons[action]+1):padButtonLabel(info.family,action)}</dd></div>)}</dl>
         </div>}
+        {!info.usable&&info.family==='playstation'&&<div className="controller-actions"><button onClick={()=>onPreset(info,false)}>Usar layout PS padrão</button><button onClick={()=>onPreset(info,true)}>Usar layout Sony HID (□ primeiro)</button></div>}
         <div className="controller-actions"><button type="button" onClick={()=>onCalibrate(info)} disabled={!!calibration}>{info.usable?"Remapear botões":"Configurar este controle"}</button>
           {info.custom && <button type="button" onClick={()=>onReset(info.id)} disabled={!!calibration}>Restaurar padrão</button>}</div>
       </>}

@@ -1,3 +1,4 @@
+import { setPieceTrajectory } from "./football-engine";
 import { TRAINING_GATES } from "./football-training";
 import { cameraTarget, stepCamera, DEFAULT_PRESENTATION, type PresentationSettings, type CameraFrame } from "./football-camera";
 import { athletePose, createLocomotion, type Locomotion } from "./football-animation";
@@ -829,6 +830,8 @@ function drawSetPieceGuide(
   view: View,
   state: MatchState,
 ) {
+  const path=setPieceTrajectory(state);
+  if(path.length){ctx.save();ctx.strokeStyle='#c8ff83';ctx.lineWidth=2;ctx.setLineDash([5,4]);ctx.beginPath();path.forEach((p,i)=>{const q=project(view,p.x,p.y);const y=q.y-p.z*view.height/100;if(i)ctx.lineTo(q.x,y);else ctx.moveTo(q.x,y);});ctx.stroke();ctx.restore();return;}
   const piece = state.setPiece;
   if (
     !piece ||

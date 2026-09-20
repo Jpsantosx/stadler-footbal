@@ -1,3 +1,4 @@
+import { beginPenaltyDuel, stepPenaltyDuel, type PenaltyDuel } from './football-penalties.ts';
 import catalog from "../data/football-catalog.json" with { type: "json" };
 import { beginTitleCelebration, resolveShootout, type TitleCelebration, type Shootout } from "./football-presentation.ts";
 import { createPitchWear, updatePitchWear, type PitchWear } from "./football-pitch.ts";
@@ -149,7 +150,10 @@ export type MarketEntry = {
 
 export type ShotKind = "auto" | "placed" | "power" | "lob";
 export type SkillKind = "rainbow" | "feint" | "bicycle" | "crossHigh" | "crossLow" | "header" | "volley" | "oneTwo";
-export type PlayerLook = { skin: string; hair: string; style: "short" | "mohawk" | "bald"; height: number; celebration: "wings" | "jump" | "point" };
+export type PlayerLook = { skin: string; hair: string; style: "short" | "mohawk" | "bald" | "curly" | "long"; height: number; celebration: "wings" | "jump" | "point";
+  weight?: number; eyes?: number; eyeSize?: number; nose?: number; mouth?: number; jaw?: number;
+  beard?: "none" | "stubble" | "full"; boots?: string; wristband?: boolean; socks?: "high" | "low"; tucked?: boolean;
+};
 export type TrainingKind = "dribble" | "freeKick" | "penalty" | "bicycle";
 export type TrainingSession = { kind: TrainingKind; attempts: number; successes: number; started: number; resolved: boolean; checkpoint: number; baselineGoals: number; feedback: string; next: number };
 export type Player = {
@@ -157,6 +161,7 @@ export type Player = {
   weakFoot?: number;
   trait?: "technical" | "aerial" | "speed" | "power";
   appearance?: PlayerLook;
+  dirt?: number;
   shielding?: boolean;
   skillCooldown?: number;
   firstTouch?: number;
@@ -170,7 +175,7 @@ export type Player = {
   strength: number;
   endurance: number;
   actionTimer: number;
-  action: "none" | "pass" | "shot" | "control" | "rainbow" | "feint" | "bicycle" | "header" | "volley" | "celebrate";
+  action: "none" | "pass" | "shot" | "control" | "rainbow" | "feint" | "bicycle" | "header" | "volley" | "celebrate" | "request";
   id: number;
   side: Side;
   role: Role;
@@ -249,6 +254,8 @@ export type SetPiece = {
   ready: boolean;
   readyTimer: number;
   aimY: number;
+  aimX?: number;
+  curve?: number;
 };
 
 export type MatchStats = {
@@ -267,6 +274,11 @@ export type MatchStats = {
 };
 
 export type MatchState = {
+  halfSeconds?: number;
+  preMatch?: boolean;
+  cupFinal?: boolean;
+  interactivePenalties?: boolean;
+  penaltyDuel?: PenaltyDuel;
   detail?: MatchDetail;
   lockedPlayerId?: number;
   careerFixture?: string;
@@ -350,6 +362,7 @@ export type Hud = {
 };
 
 export type InputState = {
+  cameraForward?: {x:number;y:number};
   controllers?: Partial<Record<Side, { x: number; y: number; sprint: boolean; shield?: boolean }>>;
   keys: Set<string>;
   touchX: number;
@@ -1026,7 +1039,7 @@ export function resetPositions(state: MatchState, kickoffSide: Side) {
     player.keeperShotPending = false;
     player.defensiveState = "shape";
     player.tackleReadiness = 0;
-    player.stamina = Math.min(100, player.stamina + 10);
+    player.stamina = Math.min(100, player.stamina + 2);
   });
   state.pressure.ownerId = null;
   state.pressure.secondaryId = null;
@@ -1079,7 +1092,7 @@ export function resetPositions(state: MatchState, kickoffSide: Side) {
 export function beginSecondHalf(state: MatchState) {
   state.half = 2;
   state.homeAttacksRight = false;
-  state.remaining = HALF_SECONDS;
+  state.remaining = state.halfSeconds ?? HALF_SECONDS;
   resetPositions(state, "away");
   state.players.forEach((player) => {
     player.stamina = Math.min(100, player.stamina + 18);
@@ -1603,7 +1616,7 @@ export function startSetPiece(
     timer: 1.05,
     ready: false,
     readyTimer: 0,
-    aimY: 32,
+    aimY: 32, aimX: attackingGoalX(state,side)-attackDirectionFor(state,side)*13, curve: 0,
   };
   setMessage(state, setPieceName(kind), 1.05);
 }
@@ -1617,6 +1630,7 @@ export function executeSetPiece(state: MatchState, action: "pass" | "shot") {
     return;
   }
 
+  if(piece.kind==="penalty"){beginPenaltyDuel(state,true,piece.side);return;}
   const attackDirection = attackDirectionFor(state, piece.side);
   const goalX = attackingGoalX(state, piece.side, 3);
   let targetX = goalX;
@@ -1627,12 +1641,7 @@ export function executeSetPiece(state: MatchState, action: "pass" | "shot") {
 
   const setPieceCharge =
     piece.side === "home" ? state.shotCharge : state.awayShotCharge;
-  if (piece.kind === "penalty") {
-    power = 52 + setPieceCharge * 10;
-    kickKind = "shot";
-    state.lastShotStyle = "PÊNALTI";
-    lift = 5.3;
-  } else if (piece.kind === "freeKick" && action === "shot") {
+  if (piece.kind === "freeKick" && action === "shot") {
     power = 48 + setPieceCharge * 13;
     state.lastShotStyle = "GOL DE FALTA";
     lift = 8.2;
@@ -1645,9 +1654,9 @@ export function executeSetPiece(state: MatchState, action: "pass" | "shot") {
       state.lastShotStyle = "GOL OLÍMPICO";
       lift = 8.8;
     } else {
-      targetX = attackingGoalX(state, piece.side) - attackDirection * 13;
-      targetY = clamp(27 + random(state) * 10, 25, 39);
-      power = 32;
+      targetX = piece.aimX ?? attackingGoalX(state, piece.side) - attackDirection * 13;
+      targetY = piece.aimY;
+      power = 26 + setPieceCharge*16;
       kickKind = "pass";
       lift = 8.4;
     }
@@ -1683,7 +1692,7 @@ export function executeSetPiece(state: MatchState, action: "pass" | "shot") {
 
   if (kickKind === "shot") {
     const spread =
-      piece.kind === "penalty" ? 2.7 : piece.kind === "freeKick" ? 4.2 : 4.8;
+      piece.kind === "freeKick" ? 2.2 : 3.2;
     targetY = finishingTargetY(state, taker, targetY, spread);
     power *=
       teamAbility(state, taker.side) * playerAttributeFactor(taker.shooting);
@@ -1700,7 +1709,7 @@ export function executeSetPiece(state: MatchState, action: "pass" | "shot") {
   state.ball.x = piece.spotX;
   state.ball.y = piece.spotY;
   if (piece.kind === "freeKick" || piece.kind === "corner") {
-    state.ball.spin = attackDirection * (piece.spotY < 32 ? 7 : -7);
+    state.ball.spin = (piece.curve??0)*12;
   }
   state.shotCharge = 0;
   state.chargingShot = false;
@@ -2050,8 +2059,9 @@ export function tackleContact(state: MatchState, tackler: Player, sliding: boole
   if (carrier) {
     const bodyDistance = distance(tackler.x, tackler.y, carrier.x, carrier.y);
     const rear = ((tackler.x - carrier.x) * carrier.facingX + (tackler.y - carrier.y) * carrier.facingY) / Math.max(0.001, bodyDistance) < -0.3;
-    // A foot cannot reach the ball through the carrier's body.
-    if (bodyDistance < (sliding ? 2.15 : 1.9) && rear && ballDistance > bodyDistance - 0.25) return "foul";
+    // Only a real late contact is a foul; shoulder contact alone is legal.
+    if (bodyDistance < (sliding ? 1.7 : 1.25) && rear && ballDistance > bodyDistance + .15) return "foul";
+    if (rear && ballDistance > bodyDistance + .35) return "none";
     if (sliding && bodyDistance < 1.65 && ballDistance > reach) return "foul";
   }
   const alignment = ((state.ball.x - tackler.x) * tackler.facingX + (state.ball.y - tackler.y) * tackler.facingY) / Math.max(0.01, ballDistance);
@@ -2164,7 +2174,7 @@ export function resolveSlideTackles(state: MatchState, demo: boolean) {
     if (player.slideTimer <= 0 || player.slideHit || player.sentOff) continue;
     const contact = tackleContact(state, player, true);
     const victim = getPlayer(state, state.ball.owner) ?? state.players.find(p =>
-      p.side !== player.side && !p.sentOff && distance(p.x, p.y, player.x, player.y) < 1.65);
+      p.side !== player.side && !p.sentOff && distance(p.x, p.y, player.x, player.y) < 1.25);
     if (contact === "none" && !victim) continue;
     if (contact === "none" && (state.ball.owner !== null || !victim)) continue;
     player.slideHit = true;
@@ -2205,6 +2215,7 @@ export function movementIntent(input: InputState, side: Side, gameMode: GameMode
     dx /= magnitude;
     dy /= magnitude;
   }
+  if(side==='home'&&input.cameraForward){const f=input.cameraForward;return {x:-f.y*dx-f.x*dy,y:f.x*dx-f.y*dy,magnitude};}
   return { x: dx, y: dy, magnitude };
 }
 
@@ -3453,6 +3464,9 @@ export function updateSteals(state: MatchState, dt: number, demo: boolean) {
       (state.difficulty === "easy" ? 1.35 : state.difficulty === "hard" ? 0.8 : 1);
     if (player.tackleReadiness < reaction) continue;
     const behind = owner && ((player.x - owner.x) * owner.facingX + (player.y - owner.y) * owner.facingY) < -0.8;
+    if (behind && owner && ballDistance > distance(player.x,player.y,owner.x,owner.y)+.1) {
+      player.tackleReadiness=0;player.defensiveState='cover';continue;
+    }
     const urgent = owner && attackProgressAt(state, player.side, owner.x) < 30;
     const sliding = !behind && !!urgent && ballDistance > 2.9 && player.defending >= 68 && Math.hypot(owner.vx, owner.vy) > 9;
     beginTackle(state, player, sliding);
@@ -3491,8 +3505,9 @@ export function updateDefensivePressure(state: MatchState, dt: number, demo: boo
 
 export function finishMatch(state: MatchState) {
   if (state.finished) return;
+  if(state.interactivePenalties && state.cupRound!==null && state.homeScore===state.awayScore && !state.shootout){if(!state.penaltyDuel)beginPenaltyDuel(state);return;}
   state.finished = true; state.paused = true; state.remaining = 0;
-  state.winner = state.homeScore > state.awayScore ? "home" : state.awayScore > state.homeScore ? "away" : null;
+  state.winner = state.shootout ? (state.shootout.home>state.shootout.away?"home":"away") : state.homeScore > state.awayScore ? "home" : state.awayScore > state.homeScore ? "away" : null;
   if (state.cupRound !== null && !state.winner) {
     state.shootout = resolveShootout(state, () => random(state));
     state.winner = state.shootout.home > state.shootout.away ? "home" : "away";
@@ -3524,6 +3539,7 @@ export function updateSetPiece(
 ) {
   const piece = state.setPiece;
   if (!piece) return;
+  if(piece.kind==="penalty" && piece.timer<=0){beginPenaltyDuel(state,true,piece.side);return;}
   if (piece.timer > 0) {
     piece.timer -= dt;
     if (piece.timer > 0) return;
@@ -3552,7 +3568,10 @@ export function updateSetPiece(
     !demo && (piece.side === "home" || state.gameMode === "local2p");
   if (humanSetPiece) {
     piece.readyTimer += dt;
-    const aimDirection = movementIntent(input, piece.side, state.gameMode).y;
+    const intent=movementIntent(input,piece.side,state.gameMode);
+    const aimDirection = intent.y;
+    if(piece.kind==='corner')piece.aimX=clamp((piece.aimX??85)+intent.x*dt*10,attackDirectionFor(state,piece.side)>0?75:4,attackDirectionFor(state,piece.side)>0?96:25);
+    else piece.curve=clamp((piece.curve??0)+intent.x*dt*.8,-1,1);
     piece.aimY = clamp(
       piece.aimY + aimDirection * dt * 10.5,
       GOAL_TOP + 1,
@@ -3563,7 +3582,7 @@ export function updateSetPiece(
     } else if (piece.side === "away" && state.chargingAwayShot) {
       state.awayShotCharge = clamp(state.awayShotCharge + dt * 0.82, 0, 1);
     }
-    if (piece.readyTimer > 6 && !state.training) {
+    if (piece.readyTimer > 45 && !state.training) {
       executeSetPiece(
         state,
         piece.kind === "throwIn" ||
@@ -3598,6 +3617,13 @@ export function updateMatch(
 ) {
   if (state.paused || state.finished) return;
   state.elapsed += dt;
+  if(state.penaltyDuel){
+    const d=state.penaltyDuel,side=d.side,other:Side=side==='home'?'away':'home';
+    const result=stepPenaltyDuel(state,dt,movementIntent(input,side,state.gameMode).y,movementIntent(input,other,state.gameMode).y);
+    if(result==='complete')finishMatch(state);
+    else if(result){if(result==='goal')registerGoal(state,side,false);else {resetPositions(state,side==='home'?'away':'home');state.ball.owner=null;state.ball.x=50;state.ball.y=32;state.ball.vx=state.ball.vy=state.ball.vz=0;state.frozen=.5;}}
+    return;
+  }
   if (state.lockedPlayerId) state.selectedId = state.lockedPlayerId;
   if (state.oneTwo && state.oneTwo.expires < state.elapsed) state.oneTwo = undefined;
   state.cameraShake = Math.max(0, state.cameraShake - dt * 2.8);
@@ -3608,6 +3634,7 @@ export function updateMatch(
     if (state.messageTimer <= 0) state.message = "";
   }
   state.players.forEach((player) => {
+    player.dirt = clamp((player.dirt??0)+(player.slideTimer>0?dt*.4:Math.hypot(player.vx,player.vy)*dt*.00003),0,1);
     player.skillCooldown = Math.max(0, (player.skillCooldown ?? 0) - dt);
     player.actionTimer = Math.max(0, player.actionTimer - dt);
     player.tackleCooldown = Math.max(0, player.tackleCooldown - dt);
@@ -3797,7 +3824,7 @@ export function setLiveTactics(state: MatchState, side: Side, tactic: TacticId, 
 export function substitutePlayer(state: MatchState, side: Side, outgoingId: number, benchIndex: number) {
   const outgoing = getPlayer(state, outgoingId), bench = state.benches?.[side], seed = bench?.[benchIndex];
   if (!state.paused || state.finished || state.training || !outgoing || outgoing.side !== side || outgoing.sentOff ||
-    outgoing.id === state.lockedPlayerId || !seed || (state.substitutions?.[side] ?? 0) >= 5 ||
+    outgoing.id === state.lockedPlayerId || !seed || (!state.preMatch && (state.substitutions?.[side] ?? 0) >= 5) ||
     (seed[3] === 'GK') !== (outgoing.role === 'GK')) return false;
   const fresh = buildPlayers(state.homeTeam, state.awayTeam, state.homeFormation, state.awayFormation)[0];
   const attributes = attributeProfile(seed, seed[3] ?? outgoing.role);
@@ -3810,7 +3837,8 @@ export function substitutePlayer(state: MatchState, side: Side, outgoingId: numb
     yellowCards:0,vx:0,vy:0,controlShield:0,decisionCooldown:.6 });
   state.players[state.players.indexOf(outgoing)] = fresh;
   bench!.splice(benchIndex,1);
-  state.substitutions ??= {home:0,away:0}; state.substitutions[side]++;
+  if(state.preMatch)bench!.push([outgoing.name,outgoing.number,outgoing.overall,outgoing.role,25,outgoing.overall,outgoing.mass,outgoing.squadId]);
+  state.substitutions ??= {home:0,away:0}; if(!state.preMatch)state.substitutions[side]++;
   if (state.detail) { state.detail.pending = null; state.detail.assist = null; }
   statsFor(state,fresh);
   setMessage(state, `ENTRA ${fresh.name.toUpperCase()}`,1.5);
@@ -3819,12 +3847,15 @@ export function substitutePlayer(state: MatchState, side: Side, outgoingId: numb
 export function requestPlayerPass(state: MatchState) {
   const p = getPlayer(state,state.lockedPlayerId ?? null), owner = getPlayer(state,state.ball.owner);
   if (!p || !owner || owner.id === p.id || owner.side !== p.side || state.paused || state.finished || state.setPiece ||
-    (state.requestCooldown ?? 0) > state.elapsed || distance(p.x,p.y,owner.x,owner.y)>45) return false;
-  state.requestCooldown = state.elapsed+1;
-  if (isOffsidePosition(state,owner,p) || passLaneRisk(state,owner,p)>.8) {
-    setMessage(state,'BUSQUE UMA LINHA DE PASSE LIVRE',1); return false;
-  }
-  return passToPlayer(state,owner,p);
+    (state.requestCooldown ?? 0) > state.elapsed) return false;
+  state.requestCooldown=state.elapsed+1.4;p.action='request';p.actionTimer=1;
+  const risk=passLaneRisk(state,owner,p), offside=isOffsidePosition(state,owner,p), d=distance(p.x,p.y,owner.x,owner.y);
+  if(risk>.6||offside||d>40)statsFor(state,p).badRequests++;
+  if(offside){if(p.side==='home')state.stats.homeOffsides++;else state.stats.awayOffsides++;startSetPiece(state,'offside',p.side==='home'?'away':'home',p.x,p.y);return true;}
+  const target=accuratePassTarget(state,owner,p.x+p.vx*.25,p.y+p.vy*.25);
+  kickBall(state,owner,target.x,target.y,clamp(13+d*1.05,20,65),'pass',d>35?3.2:.75);
+  state.passIntent={receiverId:p.id,x:target.x,y:target.y,expires:state.elapsed+3};
+  setMessage(state,risk>.6?'PASSE PEDIDO SOB PRESSÃO':'PASSE SOLICITADO',.7);return true;
 }
 export function oneTwoPass(state: MatchState, p: Player) {
   if (state.ball.owner !== p.id) return false;
@@ -3852,7 +3883,7 @@ export function crossBall(state: MatchState, p: Player, low: boolean) {
 }
 export function aerialWindow(state: MatchState, p: Player, kind: 'header'|'volley'|'bicycle') {
   const z=state.ball.z, d=distance(p.x,p.y,state.ball.x,state.ball.y);
-  const min=kind==='volley'?.6:kind==='header'?1.8:1.4, max=kind==='volley'?2.3:4;
+  const min=kind==='volley'?.6:kind==='header'?1.8:1.4, max=kind==='volley'?2.3:4+((p.appearance?.height??180)-180)*.025;
   return state.ball.owner===null && d<2.8 && z>=min && z<=max;
 }
 export function aerialStrike(state: MatchState, p: Player, kind: 'header'|'volley') {
@@ -3861,7 +3892,7 @@ export function aerialStrike(state: MatchState, p: Player, kind: 'header'|'volle
     .sort((a,b)=>distance(a.x,a.y,state.ball.x,state.ball.y)-distance(b.x,b.y,state.ball.x,state.ball.y))[0];
   const position=distance(p.x,p.y,state.ball.x,state.ball.y);
   if (rival && rival.strength + (rival.trait==='aerial'?10:0) - distance(rival.x,rival.y,state.ball.x,state.ball.y)*13 >
-    p.strength+(p.trait==='aerial'?10:0)-position*13+5) {
+    p.strength+(p.trait==='aerial'?10:0)+((p.appearance?.height??180)-180)*.45-position*13+5) {
     p.skillCooldown=.55;p.stumbleTimer=.12;setMessage(state,'DEFENSOR GANHOU A POSIÇÃO',.7);return false;
   }
   const height=state.ball.z, ideal=kind==='header'?2.65:1.25;
@@ -3873,4 +3904,30 @@ export function aerialStrike(state: MatchState, p: Player, kind: 'header'|'volle
   state.ball.z=height;p.action=kind;p.actionTimer=.65;p.skillCooldown=1;p.stamina-=7;
   state.lastShotStyle=kind==='header'?'CABEÇADA':'VOLEIO';statsFor(state,p).duels+=rival?1:0;
   setMessage(state,state.lastShotStyle+(timing>.8?' • NO TEMPO CERTO!':''),.8);return true;
+}
+
+export function configureMatchDuration(state:MatchState, minutes:1|3|5){state.halfSeconds=minutes*30;state.remaining=state.halfSeconds;}
+export function applyFormation(state:MatchState,side:Side,formation:FormationId){
+  if(!state.paused||state.finished||!FORMATIONS[formation])return false;
+  if(side==='home')state.homeFormation=formation;else state.awayFormation=formation;
+  state.players.filter(p=>p.side===side).forEach((p,i)=>{const [role,x,y]=FORMATIONS[formation].slots[i];p.role=role;p.homeX=side==='home'?x:100-x;p.homeY=y;if(state.preMatch){p.x=formationXFor(state,p);p.y=y;}});return true;
+}
+
+export function chooseSetPieceTaker(state:MatchState,id?:number){
+  const piece=state.setPiece;if(!piece)return false;
+  const candidates=state.players.filter(p=>p.side===piece.side&&!p.sentOff&&p.role!=='GK').sort((a,b)=>b.shooting-a.shooting);
+  const next=id?candidates.find(p=>p.id===id):candidates[(candidates.findIndex(p=>p.id===piece.takerId)+1)%candidates.length];
+  const previous=getPlayer(state,piece.takerId);if(!next||!previous)return false;
+  const pos={x:next.x,y:next.y};next.x=previous.x;next.y=previous.y;previous.x=pos.x;previous.y=pos.y;
+  piece.takerId=next.id;if(piece.side==='home')state.selectedId=next.id;else state.selectedAwayId=next.id;return true;
+}
+/** Ballistic preview before attribute-based execution error. */
+export function setPieceTrajectory(state:MatchState){
+  const p=state.setPiece,d=state.penaltyDuel;if(!p&&!d)return [];
+  let x=d?88:p!.spotX,y=d?32:p!.spotY,z=.2;
+  const side=d?.side??p!.side,charge=side==='home'?state.shotCharge:state.awayShotCharge;
+  const tx=d?100:p!.kind==='corner'?(p!.aimX??85):attackingGoalX(state,side,3),ty=d?.aim??p!.aimY;
+  const speed=d?30+charge*22:p!.kind==='corner'?26+charge*16:48+charge*13;
+  const len=Math.hypot(tx-x,ty-y);let vx=(tx-x)/len*speed,vy=(ty-y)/len*speed,vz=d?(d.height-.2)/(12/vx)+9.25*(12/vx):8.2;
+  const points=[];for(let i=0;i<55;i++){points.push({x,y,z});x+=vx*.025;y+=vy*.025;z+=vz*.025;vz-=18.5*.025;const spin=(p?.curve??0)*12*Math.pow(.992,i*.025*60),speed=Math.max(.1,Math.hypot(vx,vy));const old=vx;vx-=vy/speed*spin*.25*.025;vy+=old/speed*spin*.25*.025;vx*=Math.pow(.996,.025*60);vy*=Math.pow(.996,.025*60);if(z<.1||x>102||x< -2||y< -2||y>66)break;}return points;
 }

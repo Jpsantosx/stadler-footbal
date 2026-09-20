@@ -32,12 +32,18 @@ export function parsePlayerCareer(raw:unknown):PlayerCareer|null{
   const c=raw as PlayerCareer,club=TEAMS.find(t=>t.id===c.clubId);
   if(c.version!==1||!club||typeof c.id!=='string'||c.id.length>100||typeof c.name!=='string'||c.name.length>24||
     !['FW','MF','DF'].includes(c.role)||!['right','left'].includes(c.foot)||!['technical','aerial','speed','power'].includes(c.trait)||
-    !c.look||!SKIN_COLORS.includes(c.look.skin)||!HAIR_COLORS.includes(c.look.hair)||!['short','mohawk','bald'].includes(c.look.style)||
+    !c.look||!SKIN_COLORS.includes(c.look.skin)||!HAIR_COLORS.includes(c.look.hair)||!['short','mohawk','bald','curly','long'].includes(c.look.style)||
     !['wings','jump','point'].includes(c.look.celebration)||!Number.isFinite(c.look.height)||c.look.height<165||c.look.height>200||
     !c.attributes||!Object.keys(CAREER_ATTRIBUTES).every(k=>Number.isFinite(c.attributes[k as CareerAttribute])&&c.attributes[k as CareerAttribute]>=35&&c.attributes[k as CareerAttribute]<=95)||
     ![c.xp,c.points,c.season,c.appearances,c.goals,c.assists,c.number,c.weakFoot].every(n=>Number.isInteger(n)&&n>=0)||
     c.weakFoot<1||c.weakFoot>5||c.number<1||c.number>99||c.season<1||!Array.isArray(c.rows)||
     !Array.isArray(c.history)||!Array.isArray(c.titles)||!(c.lastFixture===null||typeof c.lastFixture==='string'))return null;
+  const look=c.look;
+  if((look.weight!==undefined&&(!Number.isFinite(look.weight)||look.weight<55||look.weight>105))||
+    ['eyes','eyeSize','nose','mouth','jaw'].some(k=>{const n=look[k as keyof typeof look];return n!==undefined&&(typeof n!=='number'||!Number.isFinite(n)||n<.6||n>1.4);})||
+    (look.beard!==undefined&&!['none','stubble','full'].includes(look.beard))||
+    (look.boots!==undefined&&!/^#[0-9a-f]{6}$/i.test(look.boots))||
+    (look.socks!==undefined&&!['high','low'].includes(look.socks)))return null;
   const expected=createLeagueRows(club.leagueId);
   if(c.rows.length!==expected.length||new Set(c.rows.map(r=>r.teamId)).size!==expected.length||
     !c.rows.every(r=>expected.some(e=>e.teamId===r.teamId)&&['played','wins','draws','losses','goalsFor','goalsAgainst','points'].every(k=>Number.isInteger(r[k as keyof LeagueRow])&&Number(r[k as keyof LeagueRow])>=0))||
@@ -55,8 +61,8 @@ export function makePlayerCareerMatch(c:PlayerCareer,difficulty:Difficulty='norm
   const state=createMatch(club,fixture.opponent,difficulty);
   const p=state.players.find(p=>p.side==='home'&&p.role===c.role)!;
   const oldKey=athleteKey(p);if(state.detail)delete state.detail.athletes[oldKey];
-  Object.assign(p,c.attributes,{squadId:c.id,name:c.name,number:c.number,preferredFoot:c.foot,weakFoot:c.weakFoot,
-    trait:c.trait,appearance:{...c.look},overall:careerOverall(c),mass:65+(c.look.height-165)*.5,
+  Object.assign(p,effectiveCareerAttributes(c),{squadId:c.id,name:c.name,number:c.number,preferredFoot:c.foot,weakFoot:c.weakFoot,
+    trait:c.trait,appearance:{...c.look},overall:careerOverall(c),mass:c.look.weight??(65+(c.look.height-165)*.5),
     archetype:c.trait==='technical'?'creator':c.trait==='speed'?'sprinter':c.role==='DF'?'stopper':'finisher'});
   statsFor(state,p);state.selectedId=p.id;state.lockedPlayerId=p.id;state.careerFixture=fixture.id;
   state.message=`${c.name.toUpperCase()} • SUA JORNADA COMEÇA`;return state;
@@ -86,4 +92,9 @@ export function nextPlayerSeason(c:PlayerCareer):PlayerCareer{
 }
 export function careerMatchStats(state:MatchState):AthleteStats|undefined{
   const p=state.players.find(p=>p.id===state.lockedPlayerId);return p?statsFor(state,p):undefined;
+}
+
+export function effectiveCareerAttributes(c:Pick<PlayerCareer,'attributes'|'look'>){
+ const height=c.look.height,weight=c.look.weight??(65+(height-165)*.5),clamp=(v:number)=>Math.max(35,Math.min(99,v));
+ return {...c.attributes,pace:clamp(c.attributes.pace-(height-180)*.18-(weight-75)*.22),strength:clamp(c.attributes.strength+(weight-75)*.35),endurance:clamp(c.attributes.endurance-Math.max(0,weight-80)*.15)};
 }

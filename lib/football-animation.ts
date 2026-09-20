@@ -19,11 +19,14 @@ export function athletePose(p: Player, m: Locomotion, dt: number) {
   m.turn += (clamp(angle * m.speed * .035, -.3, .3) - m.turn) * blend;
   m.vx = p.vx; m.vy = p.vy;
   const amplitude = clamp(m.speed / 21, 0, .78);
-  const stride = [Math.sin(m.phase) * amplitude, Math.sin(m.phase + Math.PI) * amplitude];
-  const knees = stride.map(s => Math.max(0, -s) * 1.45 + amplitude * .13);
+  // A slower planted phase and bent-knee recovery replace symmetric pendulum legs.
+  const phases=[m.phase,m.phase+Math.PI];
+  const stride=phases.map(t=>Math.sin(t)*amplitude*(Math.cos(t)>0?1:.82));
+  const knees=phases.map(t=>Math.max(0,Math.cos(t)) * amplitude * 1.5 + .06);
+
   const arms = [-stride[0] * .7, -stride[1] * .7];
   const elbows = [-.35 - amplitude * .65, -.35 - amplitude * .65];
-  let bob = Math.abs(Math.sin(m.phase)) * amplitude * .085;
+  let bob = Math.abs(Math.sin(m.phase)) * amplitude * .05;
   let kick = 0;
   if (p.actionTimer > 0 && (p.action === "shot" || p.action === "pass")) {
     const duration = p.action === "shot" ? .5 : .34;
@@ -47,6 +50,8 @@ export function athletePose(p: Player, m: Locomotion, dt: number) {
     if(style==='jump')bob+=Math.abs(Math.sin(p.actionTimer*6))*.7;
   }
   if(p.shielding){arms[0]=-.9;arms[1]=.6;lean+=.08;}
+  if(p.action==='request'&&p.actionTimer>0){arms[0]=-2.85;elbows[0]=-.15;}
+  if(m.speed<.5)bob+=Math.sin(m.phase+p.stamina*.02)*.008;
   const raw=[...stride,...knees,...arms,...elbows,bob,lean,bank];
   if(!m.poses)m.poses=[...raw];
   raw.forEach((n,i)=>{m.poses![i]+=(n-m.poses![i])*(1-Math.exp(-22*step));});

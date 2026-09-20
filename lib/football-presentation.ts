@@ -44,7 +44,7 @@ export function resolveShootout(state: MatchState, random: () => number): Shooto
 }
 
 export function beginTitleCelebration(state: MatchState): boolean {
-  if (!state.finished || state.cupRound !== 2 || !state.winner || state.celebration) return false;
+  if (!state.finished || !(state.cupFinal ?? state.cupRound === 2) || !state.winner || state.celebration) return false;
   const winners = state.players.filter(p => p.side === state.winner);
   const captain = [...winners].sort((a, b) => b.overall - a.overall || a.number - b.number)[0];
   if (!captain) return false;
@@ -79,13 +79,13 @@ export function celebrationPose(c: TitleCelebration, player: Player) {
   const captain = player.id === c.captainId;
   const index = peers.findIndex(p => p.id === player.id);
   const targetX = captain ? 50 : 50 + (index - (peers.length - 1) / 2) * 2.7;
-  const targetY = captain ? 34 : 30.8;
+  const targetY = captain ? 34 : 30.8-Math.abs(index-(peers.length-1)/2)*.25;
   const gather = smooth(c.time / 4.5);
   const lift = smooth((c.time - 5) / 1.6);
   const jump = c.time > 6.6 ? Math.max(0, Math.sin((c.time - 6.6) * 5 + player.id)) * 0.32 : 0;
   return {
     x: origin.x + (targetX - origin.x) * gather,
-    y: origin.y + (targetY - origin.y) * gather,
+    y: origin.y + (targetY - origin.y) * gather + Math.sin(gather*Math.PI)*(captain?3:(index%2?2:-2)),
     height: smooth((c.time - 3.5) / 1) * 0.7 + (captain ? 0 : jump),
     lift, captain, gathered: gather === 1,
   };

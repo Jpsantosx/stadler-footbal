@@ -199,3 +199,13 @@ Mouse: esquerdo chuta, direito passa, meio finta. WASD define movimento e direç
 No celular, a faixa de jogadas oferece Proteger (segure), Chapéu, Finta e Bicicleta; o seletor define o estilo do próximo chute. Bicicleta exige bola solta entre 1,4 e 4 unidades de altura e alcance de 2,8 unidades, além de energia; não teletransporta o jogador. Superchute exige pelo menos 55% de carga e 18 de energia; caso contrário sai um chute comum. Nenhum lance garante gol. Chapéu deixa a bola disputável e tem intervalo entre usos.
 
 A vibração usa [GamepadHapticActuator](https://w3c.github.io/gamepad/#dom-gamepadhapticactuator-playeffect) quando exposto pelo navegador; erros ou ausência de suporte não interrompem a partida. Testes automatizados usam controles simulados. **Celulares e controles físicos não estavam disponíveis para validação**; o botão de teste ajuda a verificar o dispositivo real sem afirmar compatibilidade universal.
+
+### Atualização de simulação — setembro de 2026
+
+- Copa com sorteio de 16 clubes e quatro fases; o adversário vem da chave. Empates nas copas abrem cobranças e defesas de pênaltis jogáveis, com eliminação antecipada e morte súbita.
+- Pênaltis: cima/baixo mira; segurar e soltar chute controla força. Defendendo, escolha direção e confirme com chute; há botões de direção para toque. Faltas: cima/baixo mira, esquerda/direita curva, Q/L1 alterna cobrador. Escanteios usam esquerda/direita para profundidade e a seleção de cobrador mostra atributos.
+- Partidas de 1, 3 ou 5 minutos nas configurações; escalação pré-jogo e formação/táticas/substituições na pausa. Ajustes antes do apito não gastam as cinco substituições.
+- Personalização de rosto, cabelo/barba, peso, altura, chuteiras e uniforme. Altura aumenta alcance aéreo; peso afeta força e velocidade. Câmera Pro em WebGL e acompanhamento do atleta no modo Canvas. Nota da carreira entre 4 e 10, com penalidade por pedidos arriscados e abandono da posição.
+- Pele e tecido usam materiais físicos com detalhes procedurais, cabelo em planos recortados, suor e manchas progressivas. Não são modelos escaneados nem animações de captura de movimento. Cerimônia com planos de câmera e taça acompanhando as mãos.
+- Perfis PlayStation padrão e Sony HID nas configurações para dispositivos sem mapeamento reconhecido, além da calibração individual. A conexão Bluetooth/USB é gerenciada pelo aparelho e pelo navegador.
+- Validação: testes determinísticos de regras/input e build de produção. Dispositivos físicos e desempenho gráfico em GPUs reais precisam de testes complementares; não são equivalentes à simulação de input.

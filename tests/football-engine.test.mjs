@@ -451,7 +451,7 @@ test("a bot initiates a real lunge outside body overlap and wins clean ball cont
 test("rear body contact is a foul even for an elite defender; missing the ball gives no possession",()=>{
   for(const sliding of [false,true]){
     const {s,owner,bot}=duel();
-    Object.assign(bot,{x:68.4,defending:99,facingX:1});
+    Object.assign(bot,{x:68.9,defending:99,facingX:1});
     assert.equal(defense.tackleContact(s,bot,sliding),"foul");
     defense.beginTackle(s,bot,sliding);
     if(sliding)defense.resolveSlideTackles(s,false);else defense.resolveStealAttempts(s,false);
@@ -822,7 +822,7 @@ test("gamepad analog input drives both athletes, sprint fatigue and set-piece ai
   assert.ok(home.x>homeStart);assert.ok(away.y<awayStart);assert.ok(away.stamina<99);assert.ok(home.stamina>=99);
   assert.ok(Math.abs(away.vy)>Math.abs(home.vx)*2);
   defense.startSetPiece(s,"penalty","away",90,32);Object.assign(s.setPiece,{ready:true,timer:0,readyTimer:0});
-  const aim=s.setPiece.aimY;defense.updateSetPiece(s,i,.1,false);assert.ok(s.setPiece.aimY<aim);
+  defense.updateSetPiece(s,i,.1,false);const aim=s.penaltyDuel.aim;updateMatch(s,i,.1,false);assert.ok(s.penaltyDuel.aim<aim);
   s.chargingShot=true;s.shotCharge=.5;touch.clearMatchInput(i,s);
   assert.deepEqual(i.controllers,{});assert.equal(s.chargingShot,false);assert.equal(s.shotCharge,0);
 });
@@ -1018,7 +1018,7 @@ test('training repeats drills without advancing a match clock and gives a real b
   assert.equal(ready,true);assert.equal(bike.training.successes,1);
   const penalty=createTraining('penalty');assert.equal(penalty.setPiece.kind,'penalty');assert.equal(penalty.setPiece.ready,true);
   for(let i=0;i<840;i++){updateMatch(penalty,idle,1/120,false);tickTraining(penalty);}
-  assert.equal(penalty.stats.homeShots,0);assert.equal(penalty.setPiece.kind,'penalty');
+  assert.equal(penalty.stats.homeShots,0);assert.equal(penalty.penaltyDuel.phase,'aim');
 });
 test('player career persists appearance, rewards completed fixtures once and makes upgrades affect match OVR',()=>{
   const c=newPlayerCareer(journeyDraft,'test-athlete');assert.deepEqual(parsePlayerCareer(JSON.parse(JSON.stringify(c))),c);
@@ -1052,4 +1052,80 @@ test('career athlete stays selected and all tracked values remain finite through
   assert.equal(s.finished,true);assert.ok(s.detail.athletes[`home:${c.id}`].seconds>30);
   assert.ok(s.players.every(p=>Number.isFinite(p.x)&&Number.isFinite(p.y)&&Number.isFinite(p.stamina)));
   assert.ok(Object.values(s.detail.athletes).every(r=>Number.isFinite(playerRating(r))&&r.completed<=r.passes));
+});
+
+import { drawCup, cupOpponent, advanceCup } from '../lib/football-cup.ts';
+import { beginPenaltyDuel, strikePenalty, commitPenaltyDive, shootoutWinner } from '../lib/football-penalties.ts';
+import { effectiveCareerAttributes } from '../lib/football-player-career.ts';
+import { proCameraPose, proCameraForward } from '../lib/football-camera.ts';
+import { sonyPadPreset } from '../lib/football-gamepad.ts';
+
+test('sixteen-team knockout draw advances four rounds with fixed opponents and no duplicates',()=>{
+ let cup=drawCup(TEAMS[0],TEAMS,()=>.37);
+ assert.equal(new Set(cup.rounds[0].flatMap(t=>[t.a,t.b])).size,16);
+ for(let round=0;round<4;round++){
+  const opponent=cupOpponent(cup);assert.ok(opponent);
+  assert.equal(advanceCup(cup,'wrong-team',true,'1–0'),cup);
+  cup=advanceCup(cup,opponent.id,true,'1–0',()=>.4);
+  assert.equal(cup.round,round+1);
+ }
+ assert.equal(cup.champion,TEAMS[0].id);assert.equal(cupOpponent(cup),null);
+ assert.deepEqual(cup.rounds.map(r=>r.length),[8,4,2,1]);
+ const fresh=drawCup(TEAMS[0],TEAMS,()=>.63),lost=advanceCup(fresh,cupOpponent(fresh).id,false,'0–1');
+ assert.equal(lost.eliminated,true);assert.equal(cupOpponent(lost),null);
+});
+
+test('cup draw transitions into controllable penalties, not a completed match',()=>{
+ const s=match();s.interactivePenalties=true;s.cupRound=3;s.cupFinal=true;s.half=2;s.remaining=0;
+ defense.finishMatch(s);assert.equal(s.finished,false);assert.equal(s.paused,false);assert.equal(s.penaltyDuel.phase,'aim');
+ const clock=s.remaining;simulate(s,1,false);assert.equal(s.remaining,clock);assert.equal(s.penaltyDuel.phase,'aim');
+});
+
+test('penalty physics rewards directional keeper positioning and resolves misses',()=>{
+ function shot(aim,dive,height=1){const s=match();s.gameMode='local2p';beginPenaltyDuel(s,true);s.penaltyDuel.aim=aim;s.penaltyDuel.height=height;s.shotCharge=.55;commitPenaltyDive(s,'away',dive);strikePenalty(s,'home');for(let i=0;i<130&&s.penaltyDuel.phase!=='result';i++)updateMatch(s,input(),1/120,false);return s.penaltyDuel;}
+ assert.equal(shot(32,0).saved,true);
+ assert.equal(shot(38,-1).scored,true);
+ assert.equal(shot(42,-1).scored,false);
+ assert.equal(shot(32,-1,5.8).scored,false);
+});
+
+test('shootout applies early elimination and paired sudden death correctly',()=>{
+ const kicks=(h,a)=>[...Array.from({length:h},()=>({side:'home'})),...Array.from({length:a},()=>({side:'away'}))];
+ assert.equal(shootoutWinner({home:3,away:0,kicks:kicks(3,3)}),'home');
+ assert.equal(shootoutWinner({home:5,away:4,kicks:kicks(6,5)}),null);
+ assert.equal(shootoutWinner({home:5,away:4,kicks:kicks(6,6)}),'home');
+ assert.equal(shootoutWinner({home:5,away:5,kicks:kicks(6,6)}),null);
+});
+
+test('free-kick curve changes real velocity and taker selection preserves positions',()=>{
+ const kick=curve=>{const s=match();defense.startSetPiece(s,'freeKick','home',74,28);s.setPiece.ready=true;s.setPiece.curve=curve;s.shotCharge=.5;const before=s.setPiece.takerId;assert.equal(defense.chooseSetPieceTaker(s),true);assert.notEqual(s.setPiece.takerId,before);assert.ok(defense.setPieceTrajectory(s).length>10);defense.executeSetPiece(s,'shot');return s;};
+ const left=kick(-1),right=kick(1);assert.equal(left.ball.spin,-12);assert.equal(right.ball.spin,12);
+ updateBall(left,.1,true);updateBall(right,.1,true);assert.notEqual(left.ball.vy,right.ball.vy);
+});
+
+test('one, three and five minute matches have two correctly scaled halves',()=>{
+ for(const minutes of [1,3,5]){const s=match();defense.configureMatchDuration(s,minutes);assert.equal(s.remaining,minutes*30);s.remaining=.001;s.frozen=0;updateMatch(s,input(),.01,false);assert.equal(s.half,2);assert.equal(s.remaining,minutes*30);}
+});
+
+test('pre-match lineup swaps are reversible and formations persist without teleporting during play',()=>{
+ const s=match();s.paused=true;s.preMatch=true;
+ const p=s.players.find(p=>p.side==='home'&&p.role!=='GK'),old=p.squadId;
+ const index=s.benches.home.findIndex(seed=>seed[3]!=='GK');assert.equal(defense.substitutePlayer(s,'home',p.id,index),true);
+ assert.equal(s.substitutions.home,0);assert.ok(s.benches.home.some(seed=>seed[7]===old));
+ s.preMatch=false;const position={x:p.x,y:p.y};assert.equal(defense.applyFormation(s,'home','3-2-2'),true);assert.deepEqual({x:p.x,y:p.y},position);
+});
+
+test('height, weight and Pro camera basis affect the playable athlete',()=>{
+ const attributes={pace:70,shooting:70,passing:70,defending:60,strength:65,endurance:70};
+ const light=effectiveCareerAttributes({attributes,look:{height:170,weight:60}}),heavy=effectiveCareerAttributes({attributes,look:{height:195,weight:100}});
+ assert.ok(light.pace>heavy.pace);assert.ok(heavy.strength>light.strength);
+ const s=match(),p=s.players.find(p=>p.id===s.selectedId);s.lockedPlayerId=p.id;
+ const f=proCameraForward(s),camera=proCameraPose(s);assert.ok((p.x-camera.x)*f.x+(p.y-camera.z)*f.y>0);
+ const i=input();i.cameraForward=f;i.keys.add('KeyW');const move=defense.movementIntent(i,'home','solo');assert.ok(move.x*f.x+move.y*f.y>.99);
+});
+
+test('Sony raw profile is usable without standard mapping and phantom unmapped buttons do not block input',()=>{
+ const driver=createGamepadDriver(),p=mockPad(0,'Wireless Controller');p.mapping='';const profiles={[p.id]:sonyPadPreset(true)};
+ padButton(p,13,true);driver.poll([p],'solo','playing',0,profiles);padButton(p,1,true);
+ const frame=driver.poll([p],'solo','playing',16,profiles);assert.equal(frame.infos[0].usable,true);assert.ok(frame.events.some(e=>e.action==='pass'));
 });
