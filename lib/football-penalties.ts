@@ -4,7 +4,7 @@ export type PenaltyDuel = { single:boolean; side:Side; phase:'aim'|'flight'|'res
 const clamp=(v:number,a:number,b:number)=>Math.max(a,Math.min(b,v));
 const other=(s:Side):Side=>s==='home'?'away':'home';
 function prepare(s:MatchState,d:PenaltyDuel){
-  const squad=s.players.filter(p=>p.side===d.side&&!p.sentOff).sort((a,b)=>b.shooting-a.shooting);
+  const squad=s.players.filter(p=>p.side===d.side&&!p.sentOff&&(!d.single||p.role!=='GK')).sort((a,b)=>b.shooting-a.shooting);
   const count=d.kicks.filter(k=>k.side===d.side).length;
   const p=(d.single&&d.takerId?squad.find(p=>p.id===d.takerId):null)??squad[count%squad.length];const keeper=s.players.find(p=>p.side!==d.side&&p.role==='GK'&&!p.sentOff)??s.players.find(p=>p.side!==d.side&&!p.sentOff)!;
   d.takerId=p.id;d.keeperId=keeper.id;d.phase='aim';d.time=0;d.aim=32;d.height=1;d.dive=0;d.committed=false;d.scored=false;d.saved=false;

@@ -1,5 +1,6 @@
 "use client";
-import { useState, type CSSProperties } from 'react';
+import { useState } from 'react';
+import AthletePreview3D from './athlete-preview';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { TEAMS, TACTICS, FORMATIONS, type FormationId, type MatchState, type TacticId, type Side, type TrainingKind } from '@/lib/football-engine';
 import { TRAINING_DRILLS } from '@/lib/football-training';
@@ -9,12 +10,6 @@ import { sortedLeagueRows } from '@/lib/football-competition';
 import { passAccuracy, playerRating } from '@/lib/football-match-detail';
 const roles={FW:'Atacante',MF:'Meia',DF:'Defensor'};
 const traits={technical:'Técnico: passe e domínio',speed:'Veloz: arrancadas',aerial:'Jogo aéreo: disputas',power:'Potente: finalização'};
-function AthletePreview({draft,color}:{draft:Pick<CareerDraft,'look'|'name'|'number'>;color:string}){
-  return <div className="athlete-preview" style={{'--skin':draft.look.skin,'--hair':draft.look.hair,'--kit':color} as CSSProperties}>
-    <div className="athlete-portrait" data-hair={draft.look.style}><i className="portrait-head"/><i className="portrait-shirt"><b>{draft.number}</b></i></div>
-    <strong>{draft.name||'SEU CRAQUE'}</strong><small>{draft.look.height} cm</small>
-  </div>;
-}
 export function CareerHub({open,onOpenChange,career,onSave,onPlay,saveFailed}:{open:boolean;onOpenChange:(v:boolean)=>void;career:PlayerCareer|null;onSave:(c:PlayerCareer)=>void;onPlay:()=>void;saveFailed:boolean}){
   const [draft,setDraft]=useState<CareerDraft>({name:'',number:10,clubId:TEAMS[0].id,role:'FW',foot:'right',weakFoot:3,trait:'technical',
     look:{skin:SKIN_COLORS[1],hair:HAIR_COLORS[0],style:'short',height:180,celebration:'wings'}});
@@ -41,7 +36,7 @@ export function CareerHub({open,onOpenChange,career,onSave,onPlay,saveFailed}:{o
     <DialogTitle>Carreira de jogador</DialogTitle><DialogDescription>Seu atleta, sua evolução. Dispute temporadas da liga em partidas de 8 contra 8.</DialogDescription>
   </DialogHeader>{saveFailed&&<p role="alert" className="hub-warning">O navegador não conseguiu salvar. Libere espaço ou permita armazenamento para manter sua carreira.</p>}
   {!career||customizing?<form onSubmit={e=>{e.preventDefault();onSave(career?{...career,name:draft.name.trim()||career.name,number:draft.number,look:draft.look}:newPlayerCareer(draft,crypto.randomUUID()));setCustomizing(false);}}>
-    <div className="career-create"><AthletePreview draft={draft} color={club.primary}/><div className="hub-form-grid">
+    <div className="career-create"><AthletePreview3D look={draft.look} clubId={draft.clubId} name={draft.name} number={draft.number}/><div className="hub-form-grid">
       <label>Nome do atleta<input required maxLength={24} value={draft.name} placeholder="Como a torcida vai te chamar?" onChange={e=>setDraft({...draft,name:e.target.value})}/></label>
       <label>Número<input type="number" min="1" max="99" required value={draft.number} onChange={e=>setDraft({...draft,number:Number(e.target.value)})}/></label>
       {!career&&<><label>Clube<select value={draft.clubId} onChange={e=>setDraft({...draft,clubId:e.target.value})}>{TEAMS.map(t=><option key={t.id} value={t.id}>{t.name}</option>)}</select></label>
@@ -51,7 +46,7 @@ export function CareerHub({open,onOpenChange,career,onSave,onPlay,saveFailed}:{o
     </div></div>{editLook}<button className="play-button" type="submit">{career?'SALVAR VISUAL':'CRIAR MEU JOGADOR'}</button>
     {career&&<button type="button" className="text-button" onClick={()=>setCustomizing(false)}>Cancelar</button>}
   </form>:<>
-    <div className="career-summary"><AthletePreview draft={career} color={club.primary}/><div><span className="hub-kicker">TEMPORADA {career.season} · {club.name}</span><h2>{career.name} <b className="overall-pill">{careerOverall(career)} OVR</b></h2>
+    <div className="career-summary"><AthletePreview3D look={career.look} clubId={career.clubId} name={career.name} number={career.number}/><div><span className="hub-kicker">TEMPORADA {career.season} · {club.name}</span><h2>{career.name} <b className="overall-pill">{careerOverall(career)} OVR</b></h2>
       <p>{roles[career.role]} · Pé {career.foot==='left'?'esquerdo':'direito'} · Pé fraco {career.weakFoot}/5</p><p>{traits[career.trait]}</p>
       <div className="hub-metrics"><span><b>{career.appearances}</b> jogos</span><span><b>{career.goals}</b> gols</span><span><b>{career.assists}</b> assistências</span><span><b>{career.titles.length}</b> títulos</span></div>
       <label className="xp-progress">{career.xp} XP · {career.points} pontos disponíveis<progress max={100} value={career.xp%100}/><small>Cada 100 XP libera um ponto de evolução.</small></label>

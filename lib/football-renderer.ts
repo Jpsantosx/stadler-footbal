@@ -1,3 +1,4 @@
+import { slidePose } from './football-slide';
 import { setPieceTrajectory } from "./football-engine";
 import { TRAINING_GATES } from "./football-training";
 import { cameraTarget, stepCamera, DEFAULT_PRESENTATION, type PresentationSettings, type CameraFrame } from "./football-camera";
@@ -503,6 +504,8 @@ function drawPlayer(
   if (player.role === "GK" && player.keeperDiveTimer > 0) {
     ctx.rotate(player.keeperDiveDirection * 0.34);
     ctx.scale(1.08, 0.9);
+  } else if (player.slideState) {
+    const ground=slidePose(player)!.ground;ctx.rotate(player.facingY*.48*ground);ctx.translate(player.facingX*size*.28*ground,size*.28*ground);ctx.scale(1+.34*ground,1-.36*ground);
   } else if (player.slideTimer > 0) {
     ctx.rotate(player.facingY * 0.48);
     ctx.translate(player.facingX * size * 0.28, size * 0.28);

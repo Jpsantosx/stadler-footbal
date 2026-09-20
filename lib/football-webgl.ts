@@ -1,9 +1,12 @@
-import { athleteMaterials, hairCards } from "./football-materials";
+import { CSM } from "three/addons/csm/CSM.js";
+import { createGrassBlades } from "./football-grass";
+import { slidePose } from './football-slide';
+import { createFootballAthlete, updateAthleteCloth, type Athlete } from "./football-athlete";
 import { proCameraPose } from "./football-camera";
 import { TRAINING_GATES } from "./football-training";
 import * as THREE from "three";
 import { cameraTarget, stepCamera, broadcastCameraPose, DEFAULT_PRESENTATION, type PresentationSettings, type CameraFrame } from "./football-camera";
-import { athletePose, createLocomotion, type Locomotion } from "./football-animation";
+import { athletePose } from "./football-animation";
 import { grassDetailMaps, createWearOverlay, createPostProcessing, createTitleStage } from "./football-effects";
 import { celebrationPose, celebrationShot } from "./football-presentation";
 import {
@@ -107,86 +110,6 @@ function pitchTexture() {
   });
 }
 
-function kitTexture(team: Team, player: Player) {
-  return canvasTexture(512, (ctx) => {
-    ctx.scale(2,2);
-    const gk = player.role === "GK";
-    ctx.fillStyle = gk
-      ? player.side === "home"
-        ? "#b0e049"
-        : "#e9943e"
-      : team.primary;
-    ctx.fillRect(0, 0, 256, 256);
-    ctx.fillStyle = team.secondary;
-    if (!gk) {
-      if (team.kitPattern === "vertical")
-        for (let x = 0; x < 256; x += 64) ctx.fillRect(x, 0, 32, 256);
-      if (team.kitPattern === "horizontal")
-        for (let y = 0; y < 256; y += 64) ctx.fillRect(0, y, 256, 32);
-      if (team.kitPattern === "center-stripe") ctx.fillRect(92, 0, 72, 256);
-      if (team.kitPattern === "chest-band") ctx.fillRect(0, 90, 256, 48);
-      if (team.kitPattern === "sash") {
-        ctx.beginPath();
-        ctx.moveTo(0, 0);
-        ctx.lineTo(60, 0);
-        ctx.lineTo(256, 196);
-        ctx.lineTo(256, 256);
-        ctx.closePath();
-        ctx.fill();
-      }
-    }
-    ctx.strokeStyle = "rgba(0,0,0,.07)";
-    ctx.lineWidth = 1;
-    for (let x = 0; x < 256; x += 4) {
-      ctx.beginPath();
-      ctx.moveTo(x, 0);
-      ctx.lineTo(x, 256);
-      ctx.stroke();
-    }
-    ctx.fillStyle = "rgba(91,62,34,.18)";
-    for (let i = 0; i < 25; i++) {
-      ctx.beginPath();
-      ctx.ellipse(
-        (i * 67) % 256,
-        195 + (i % 5) * 10,
-        7 + (i % 4),
-        2 + (i % 3),
-        0.4,
-        0,
-        Math.PI * 2,
-      );
-      ctx.fill();
-    }
-    ctx.fillStyle = team.primary.toLowerCase().startsWith("#f")
-      ? "#16252a"
-      : "#fff";
-    ctx.font = "bold 108px Arial";
-    ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
-    ctx.strokeStyle = "rgba(0,0,0,.45)";
-    ctx.lineWidth = 3;
-    ctx.strokeText(String(player.number), 128, 135);
-    ctx.fillText(String(player.number), 128, 135);
-  });
-}
-
-type Athlete = {
-  skin: THREE.MeshPhysicalMaterial;
-  shirt: THREE.MeshPhysicalMaterial;
-  hairCards: THREE.Group;
-  identity: string;
-  root: THREE.Group;
-  body: THREE.Group;
-  legs: THREE.Group[];
-  knees: THREE.Group[];
-  arms: THREE.Group[];
-  ring: THREE.Mesh;
-  label: THREE.Sprite;
-  motion: Locomotion;
-  elbows: THREE.Group[];
-  head: THREE.Group;
-};
-
 export function createStadiumRenderer(
   canvas: HTMLCanvasElement,
 ): StadiumRenderer | null {
@@ -217,10 +140,13 @@ export function createStadiumRenderer(
   camera.lookAt(50, 0, 30);
   const hemi = new THREE.HemisphereLight("#dce9ff", "#31482c", 2.25);
   scene.add(hemi);
+  const csm=new CSM({camera,parent:scene,cascades:3,maxFar:190,mode:'practical',shadowMapSize:2048,shadowBias:-.0001,lightDirection:new THREE.Vector3(.5,-1,.35).normalize(),lightIntensity:1.7,lightMargin:70});csm.fade=true;
+  const shadowMaterials=new WeakSet<THREE.Material>();
+  const setupShadows=(root:THREE.Object3D)=>root.traverse(o=>{const mesh=o as THREE.Mesh;if(!mesh.material)return;for(const material of Array.isArray(mesh.material)?mesh.material:[mesh.material]){if(!(material instanceof THREE.MeshStandardMaterial)||shadowMaterials.has(material))continue;const custom=material.onBeforeCompile;csm.setupMaterial(material);const shadowHook=material.onBeforeCompile;material.onBeforeCompile=(shader,renderer)=>{shadowHook.call(material,shader,renderer);custom.call(material,shader,renderer);};shadowMaterials.add(material);}});
   const key = new THREE.DirectionalLight("#fff2d8", 3.1);
   key.position.set(-10, 45, -12);
   key.target.position.set(50, 0, 32);
-  key.castShadow = true;
+  key.castShadow = false;
   key.shadow.mapSize.set(2048, 2048);
   Object.assign(key.shadow.camera, {
     left: -90,
@@ -236,7 +162,7 @@ export function createStadiumRenderer(
   const fill = new THREE.DirectionalLight("#adcfff", 1.15);
   fill.position.set(110, 45, 78);
   fill.target.position.set(50, 0, 32);
-  fill.castShadow = true;
+  fill.castShadow = false;
   fill.shadow.mapSize.set(2048, 2048);
   Object.assign(fill.shadow.camera, { left: -90, right: 90, top: 90, bottom: -90, near: 1, far: 220 });
   fill.shadow.bias = -0.0003;
@@ -273,6 +199,7 @@ export function createStadiumRenderer(
       aoMap: detailMaps.ao, aoMapIntensity: 0.85 }),
   );
   const updateWear = createWearOverlay(scene);
+  const grass=createGrassBlades(scene);
   const titleStage = createTitleStage(scene);
   pitch.rotation.x = -Math.PI / 2;
   pitch.position.set(50, 0.04, 32);
@@ -327,6 +254,9 @@ export function createStadiumRenderer(
   }
   crowd.count = count;
   scene.add(crowd);
+  const crowdTime={value:0},crowdReaction={value:0};
+  crowd.material.onBeforeCompile=shader=>{shader.uniforms.uCrowdTime=crowdTime;shader.uniforms.uCrowdReaction=crowdReaction;shader.vertexShader='uniform float uCrowdTime;uniform float uCrowdReaction;\n'+shader.vertexShader;shader.vertexShader=shader.vertexShader.replace('#include <begin_vertex>',`#include <begin_vertex>
+ transformed.y+=max(0.0,sin(uCrowdTime*4.0+instanceMatrix[3].x*1.9+instanceMatrix[3].z))*(0.035+uCrowdReaction*0.22);`);};
   for (const z of [-31, 95]) {
     box(130, 1.1, 10, 50, 15, z, "#1b2833");
     for (let x = -10; x <= 110; x += 20)
@@ -450,125 +380,7 @@ export function createStadiumRenderer(
   let matchIdentity: MatchState | null = null;
   let lastTime = 0;
   let previousHomeScore = 0, previousAwayScore = 0, goalNet = 1;
-  function athlete(p: Player, team: Team): Athlete {
-    const root = new THREE.Group(),
-      body = new THREE.Group();
-    root.add(body);
-    scene.add(root);
-    const {skin,shirt}=athleteMaterials(p.appearance?.skin ?? ["#d9a47e", "#ac7551", "#774e35", "#bf8b66"][p.id%4],kitTexture(team,p),p.id);
-    const torso = new THREE.Mesh(
-      new THREE.CylinderGeometry(.37, .29, p.appearance?.tucked===false?.96:.85, 28, 12),
-      shirt,
-    );
-    const vertices=torso.geometry.getAttribute('position');
-    for(let i=0;i<vertices.count;i++){const y=vertices.getY(i),x=vertices.getX(i),z=vertices.getZ(i);const crease=1+Math.sin(y*28+x*13)*.015;vertices.setXYZ(i,x*crease,y,z*crease);}torso.geometry.computeVertexNormals();
-    torso.scale.z = 0.7;
-    torso.position.y = 1.75;
-    body.add(torso);
-    torso.castShadow = true;
-    const pelvis=new THREE.Mesh(new THREE.SphereGeometry(.3,24,16),standard(team.shorts));pelvis.scale.set(1.04,.6,.75);pelvis.position.y=1.27;body.add(pelvis);
-    const headGroup = new THREE.Group(); headGroup.position.y = 2.48; body.add(headGroup);
-    const head = new THREE.Mesh(new THREE.SphereGeometry(.255, 20, 16), skin);
-    head.scale.set(.86*(.92+(p.appearance?.jaw??1)*.08), 1.15, .94); headGroup.add(head);
-    const neck = new THREE.Mesh(new THREE.CylinderGeometry(.12,.13,.2,12),skin);
-    neck.position.y=-.3; headGroup.add(neck);
-    const hair = new THREE.Mesh(new THREE.SphereGeometry(.258,18,12,0,Math.PI*2,0,Math.PI*.48),
-      standard(p.appearance?.hair ?? ["#251b17","#3e2a1d","#171719","#60452d"][p.id%4]));
-    hair.position.y=.04;hair.scale.set(p.appearance?.style==='mohawk'?.28:.9,p.appearance?.style==='mohawk'?1.5:1.05,.96);hair.visible=p.appearance?.style!=='bald';headGroup.add(hair);
-    const cards=hairCards(p.appearance?.hair??'#251b17',p.appearance?.style??'short',p.id);headGroup.add(cards);
-    const jaw=new THREE.Mesh(new THREE.SphereGeometry(.17,20,12),skin);jaw.scale.set((p.appearance?.jaw??1)*1.04,.55,.94);jaw.position.set(0,-.17,.03);headGroup.add(jaw);
-    const mouth=new THREE.Mesh(new THREE.CapsuleGeometry(.012,.075*(p.appearance?.mouth??1),4,12),standard('#8d5144'));mouth.rotation.z=Math.PI/2;mouth.position.set(0,-.13,.215);headGroup.add(mouth);
-    if(p.appearance?.beard&&p.appearance.beard!=='none'){const beard=new THREE.Mesh(new THREE.SphereGeometry(.18,20,12,0,Math.PI*2,Math.PI*.35,Math.PI*.6),new THREE.MeshStandardMaterial({color:p.appearance.hair,roughness:1,transparent:true,opacity:p.appearance.beard==='stubble'?.38:1}));beard.scale.set(1,.8,.96);beard.position.set(0,-.1,.055);headGroup.add(beard);}
-    body.scale.setScalar((p.appearance?.height??180)/180);
-    const nose = new THREE.Mesh(new THREE.SphereGeometry(.06,8,6),skin);
-    nose.position.set(0,-.01,.235);nose.scale.set(.55*(p.appearance?.nose??1),1,(p.appearance?.nose??1));headGroup.add(nose);
-    for(const side of [-1,1]) {
-      const ear = new THREE.Mesh(new THREE.SphereGeometry(.058,8,6),skin);
-      ear.position.set(side*.23,0,0);ear.scale.set(.7,1,.55);headGroup.add(ear);
-      const eye = new THREE.Mesh(new THREE.SphereGeometry(.023,8,6),standard("#211c1b"));
-      eye.scale.setScalar(p.appearance?.eyeSize??1);eye.position.set(side*.085*(p.appearance?.eyes??1),.055,.211);headGroup.add(eye);
-    }
-    const collar = new THREE.Mesh(new THREE.TorusGeometry(.16,.035,8,20), standard(team.secondary));
-    collar.rotation.x=Math.PI/2;collar.position.y=2.18;body.add(collar);
-    const legs: THREE.Group[] = [],
-      knees: THREE.Group[] = [],
-      arms: THREE.Group[] = [],
-      elbows: THREE.Group[] = [];
-    for (const side of [-1, 1]) {
-      const leg = new THREE.Group();
-      leg.position.set(side * 0.19, 1.13, 0);
-      body.add(leg);
-      legs.push(leg);
-      const thigh = new THREE.Mesh(
-        new THREE.CapsuleGeometry(0.15, 0.33, 4, 8),
-        standard(p.role === "GK" ? "#243d28" : team.shorts),
-      );
-      thigh.position.y = -0.24;
-      leg.add(thigh);
-      const knee = new THREE.Group();
-      knee.position.y = -0.48;
-      leg.add(knee);
-      knees.push(knee);
-      const shin = new THREE.Mesh(
-        new THREE.CapsuleGeometry(0.1, 0.36, 4, 8),
-        standard(p.role === "GK" ? "#abc949" : team.socks),
-      );
-      if(p.appearance?.socks==='low'){shin.scale.y=.6;shin.position.y=-.32;const calf=new THREE.Mesh(new THREE.CapsuleGeometry(.105,.19,6,12),skin);calf.position.y=-.07;knee.add(calf);}else shin.position.y = -0.22;
-      knee.add(shin);
-      const boot=new THREE.Mesh(new THREE.CapsuleGeometry(.095,.22,5,12),standard(p.appearance?.boots??(p.id%3 ? "#dce2d4" : "#eab063")));
-      boot.rotation.x=Math.PI/2;boot.position.set(0,-.49,.1);knee.add(boot);
-      box(.14,.025,.045,0,-.41,.11,"#344a54",knee);
-      const arm = new THREE.Group();
-      arm.position.set(side * 0.43, 2.05, 0);
-      body.add(arm);
-      arms.push(arm);
-      const sleeve = new THREE.Mesh(
-        new THREE.CapsuleGeometry(0.13, 0.22, 4, 8),
-        standard(p.role==="GK" ? (p.side==="home"?"#b0e049":"#e9943e") : team.kitPattern==="white-sleeves" ? team.secondary : team.primary),
-      );
-      sleeve.position.y = -0.12;
-      arm.add(sleeve);
-      const elbow = new THREE.Group(); elbow.position.y = -.29; arm.add(elbow); elbows.push(elbow);
-      const forearm = new THREE.Mesh(
-        new THREE.CapsuleGeometry(0.095, 0.3, 4, 8),
-        skin,
-      );
-      forearm.position.set(0, -.19, 0);
-      elbow.add(forearm);
-      const hand = new THREE.Mesh(new THREE.SphereGeometry(.105,10,8),skin); hand.position.set(0,-.4,0); hand.scale.set(.75,1,.65); elbow.add(hand);
-      if(p.appearance?.wristband){const band=new THREE.Mesh(new THREE.CylinderGeometry(.098,.098,.09,16),standard('#f2efe7'));band.position.y=-.32;elbow.add(band);}
-      if (p.role === "GK") box(.2,.22,.14,0,-.4,.03,"#eceddb",elbow);
-    }
-    body.traverse(object => {
-      if (object instanceof THREE.Mesh) { object.castShadow = true; object.receiveShadow = true; }
-    });
-    root.scale.setScalar(1.28);
-    const ring = new THREE.Mesh(
-      new THREE.RingGeometry(0.85, 0.94, 40),
-      new THREE.MeshBasicMaterial({
-        color: p.side === "home" ? "#dcffa5" : "#84dfff",
-        side: THREE.DoubleSide,
-      }),
-    );
-    ring.rotation.x = -Math.PI / 2;
-    ring.position.y = 0.06;
-    root.add(ring);
-    const labelMap = canvasTexture(256, (ctx) => {
-      ctx.fillStyle = "rgba(8,19,28,.88)";
-      ctx.fillRect(0, 86, 256, 70);
-      ctx.fillStyle = "#fff";
-      ctx.textAlign = "center";
-      ctx.font = "bold 24px Arial";
-      ctx.fillText(p.name.toUpperCase().slice(0, 19), 128, 129);
-    });
-    const label = new THREE.Sprite(
-      new THREE.SpriteMaterial({ map: labelMap, depthTest: false }),
-    );
-    label.scale.set(6, 6, 1);
-    label.position.y = 4.6;
-    root.add(label);
-    return { skin,shirt,hairCards:cards,identity:p.squadId, root, body, legs, knees, arms, elbows, head:headGroup, ring, label, motion:createLocomotion(p) };
-  }
+  function athlete(p:Player,team:Team):Athlete{const a=createFootballAthlete(p,team);scene.add(a.root);setupShadows(a.root);return a;}
   function disposeObject(object: THREE.Object3D) {
     const textures = new Set<THREE.Texture>(),
       materials = new Set<THREE.Material>(),
@@ -586,9 +398,10 @@ export function createStadiumRenderer(
         }
     });
     textures.forEach((t) => t.dispose());
-    materials.forEach((m) => m.dispose());
+    materials.forEach((m) => {csm.shaders.delete(m);m.dispose();});
     geometries.forEach((g) => g.dispose());
   }
+  setupShadows(scene);
   return {
     resize(width, height, dpr) {
       renderer.setPixelRatio(Math.min(dpr, 2));
@@ -618,7 +431,7 @@ export function createStadiumRenderer(
       const visualTime = state.elapsed + (state.celebration?.time ?? 0);
       const dt = clamp(visualTime - lastTime, 0, 0.1);
       lastTime = visualTime;
-      updateWear(state.pitchWear);
+      updateWear(state.pitchWear);grass.update(state,quality);crowdTime.value=state.elapsed+(state.celebration?.time??0);crowdReaction.value=state.celebration?1:state.netPulse;
       titleStage.update(state);
       const ceremony = state.celebration;
       if (state.homeScore!==previousHomeScore) goalNet=attackDirectionFor(state,"home")>0?1:0;
@@ -644,14 +457,15 @@ export function createStadiumRenderer(
         camera.position.set(position.x, position.height, state.replayView ? position.lookY*2-position.z : position.z);camera.fov=position.fov;camera.zoom=1;
         camera.lookAt(position.lookX, 0, position.lookY);
       }
-      camera.updateProjectionMatrix(); camera.updateMatrixWorld();
+      camera.updateProjectionMatrix(); camera.updateMatrixWorld();csm.updateFrustums();csm.update();
+      csm.lights.forEach(light=>{light.intensity=quality==='performance'?0:presentation.lighting==='day'?2.1:1.5;light.castShadow=quality!=='performance';});
       renderer.shadowMap.enabled = quality !== "performance";
       crowd.visible = quality !== "performance";
       const daylight = presentation.lighting === "day";
       (scene.background as THREE.Color).set(daylight ? "#a5c3cd" : "#101c28");
       if (scene.fog) scene.fog.color.set(daylight ? "#adc5ca" : "#16252e");
       hemi.intensity = daylight ? 2.4 : 1.05;
-      key.intensity = daylight ? 3.9 : 3.1; fill.intensity = daylight ? .55 : 1.25;
+      key.intensity = quality==='performance'?(daylight?3.9:3.1):(daylight?1.5:1.1); fill.intensity = daylight ? .55 : 1.25;
       key.color.set(daylight ? "#fff2d3" : "#e5efff");
       key.position.set(daylight ? 10 : -10, daylight ? 68 : 45, -12);
       renderer.toneMappingExposure = daylight ? 1.04 : 1.12;
@@ -674,6 +488,7 @@ export function createStadiumRenderer(
         a.root.visible = ceremony ? !!pose : !p.sentOff;
         a.root.position.set(pose?.x ?? p.x, pose?.height ?? 0, pose?.y ?? p.y);
         const poseFrame=athletePose(p,a.motion,dt);
+        if(quality!=='performance')updateAthleteCloth(a,p,visualTime);
         const sweat=clamp((100-p.stamina)/80,0,1);a.skin.clearcoat=sweat*.8;a.skin.roughness=.8-sweat*.35;
         a.shirt.userData.dirt.value=p.dirt??0;
         a.hairCards.rotation.x=Math.sin(state.elapsed*7+p.id)*Math.hypot(p.vx,p.vy)*.002;a.hairCards.visible=quality!=='performance';
@@ -686,7 +501,9 @@ export function createStadiumRenderer(
         }
         const ballHeading=Math.atan2(state.ball.x-p.x,state.ball.y-p.y)-poseFrame.heading;
         a.head.rotation.y=clamp(Math.atan2(Math.sin(ballHeading),Math.cos(ballHeading)),-.48,.48);
-        if (p.slideTimer > 0) {
+        const slidingPose=slidePose(p);
+        if(slidingPose){a.body.rotation.x=slidingPose.lean;a.body.position.y=slidingPose.height;a.legs[1].rotation.x=slidingPose.leg;a.knees[0].rotation.x=slidingPose.bent;a.body.rotation.z+=slidingPose.impact;}
+        else if (p.slideTimer > 0) {
           a.body.rotation.x = -1.15;
           a.body.position.y = -0.7;
           a.legs[1].rotation.x = -0.9;
@@ -744,14 +561,15 @@ export function createStadiumRenderer(
       ballContact.position.set(state.ball.x, .075, state.ball.y);
       ballContact.scale.setScalar(1 + Math.min(height, 12) * .08);
       ballContact.material.opacity = .36 / (1 + height * .15);
-      ballContact.visible = !ceremony;
+      ballContact.visible = !ceremony&&quality==='performance';
       ballLocator.position.set(state.ball.x, .08, state.ball.y);
       ballLocator.visible = !ceremony && height > 1.5;
       ballLocator.material.opacity = Math.min(.65, (height - 1.5) * .2);
-      post.render(state, quality, dt);
+      post.render(state, quality, dt,presentation.camera==='pro'||presentation.camera==='close');
     },
     dispose() {
       post.dispose();
+      csm.lights.forEach(light=>light.shadow.dispose());csm.remove();csm.dispose();grass.dispose();
       key.shadow.dispose(); fill.shadow.dispose();
       disposeObject(scene);
       renderer.dispose();

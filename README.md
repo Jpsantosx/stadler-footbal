@@ -67,7 +67,7 @@ A referência indicada é o vídeo [FIFA 19 — Gameplay (PS4)](https://www.yout
 
 ## Partida e controles
 
-Oito atletas por lado e dois tempos de 55 segundos, totalizando **1 minuto e 50 segundos de bola em jogo**, além das interrupções. Formações `2-3-2`, `3-2-2` e `2-2-3`, com posturas equilibrada, ofensiva, defensiva e contra-ataque. Saída central, troca de lados, impedimento, lateral, escanteio, tiro de meta, faltas, pênaltis e cartões.
+Oito atletas por lado e dois tempos, com **1, 3 ou 5 minutos de duração configurável**, além das interrupções. Formações `2-3-2`, `3-2-2` e `2-2-3`, com posturas equilibrada, ofensiva, defensiva e contra-ataque. Saída central, troca de lados, impedimento, lateral, escanteio, tiro de meta, faltas, pênaltis e cartões.
 
 | Ação          | Jogador 1 | Jogador 2 |
 | ------------- | --------- | --------- |
@@ -209,3 +209,13 @@ A vibração usa [GamepadHapticActuator](https://w3c.github.io/gamepad/#dom-game
 - Pele e tecido usam materiais físicos com detalhes procedurais, cabelo em planos recortados, suor e manchas progressivas. Não são modelos escaneados nem animações de captura de movimento. Cerimônia com planos de câmera e taça acompanhando as mãos.
 - Perfis PlayStation padrão e Sony HID nas configurações para dispositivos sem mapeamento reconhecido, além da calibração individual. A conexão Bluetooth/USB é gerenciada pelo aparelho e pelo navegador.
 - Validação: testes determinísticos de regras/input e build de produção. Dispositivos físicos e desempenho gráfico em GPUs reais precisam de testes complementares; não são equivalentes à simulação de input.
+
+### Preview 3D compartilhado e renderização avançada
+
+O criador e a partida usam `createFootballAthlete`: a cabeça tem cinco morph targets e os sliders atualizam suas influências sem trocar a malha. Altura/peso alteram as proporções do mesmo avatar. O preview usa luzes de estúdio; se WebGL estiver indisponível, mostra uma indicação explícita em vez de um avatar 2D diferente do personagem.
+
+As superfícies anatômicas são procedurais, com pele e tecido separados, normal maps, roughness maps, cabelo em 24 planos recortados, deformação limitada do tecido por molas e difusão aproximada de contraluz na pele. A qualidade gráfica ainda depende de assets artísticos: **não são humanos escaneados, captura de movimento ou fotorrealismo AAA**. A simulação de tecido é simplificada e não inclui colisão completa entre todas as peças.
+
+O estádio usa três cascatas de sombras de 2048 px, lâminas de grama instanciadas perto da ação e torcida animada. Ultra adiciona SSAO; a câmera Pro/próxima e a cerimônia usam profundidade de campo. O modo desempenho reduz esses custos. Avisos centrais de ações rotineiras foram removidos; instruções ficam nos painéis específicos de treino/bolas paradas.
+
+Tiros de meta aceitam apenas goleiros no motor e na interface. Saídas pela linha de fundo escolhem escanteio ou tiro de meta pelo último toque. Carrinhos têm estados de queda, deslize com atrito, impacto e recuperação, mantendo o controle bloqueado até o jogador se levantar.

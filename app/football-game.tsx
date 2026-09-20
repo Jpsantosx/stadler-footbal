@@ -1903,12 +1903,6 @@ export default function FootballGame() {
           <details className="aerial-controls"><summary>Jogadas +</summary><div><button onClick={()=>actionsRef.current.skill('rainbow')}>Chapéu</button><button onClick={()=>actionsRef.current.skill('feint')}>Finta</button><button onClick={()=>actionsRef.current.skill('bicycle')}>Bicicleta</button><button onClick={()=>actionsRef.current.skill('crossHigh')}>Cruz. alto · N</button><button onClick={()=>actionsRef.current.skill('crossLow')}>Rasteiro · M</button><button onClick={()=>actionsRef.current.skill('oneTwo')}>Tabelinha · Y</button><button onClick={()=>actionsRef.current.skill('header')}>Cabeceio</button><button onClick={()=>actionsRef.current.skill('volley')}>Voleio</button></div></details>
           <select aria-label="Tipo de chute no celular" value={controls.touchShot} onChange={e=>saveControls({...controlsRef.current,touchShot:e.target.value as ShotKind})}><option value="auto">Chute normal</option><option value="placed">Colocado</option><option value="lob">Cavadinha</option><option value="power">Superchute</option></select>
         </div>}
-        {hud.message && screen === "playing" && specialMode!=='training' && !replaying && (
-          <div className="match-message" data-set-piece={hud.setPieceKind !== null} role="status">
-            {hud.message}
-          </div>
-        )}
-
         {screen === "menu" && (
           <div className="menu-screen">
             <div className="menu-panel">
@@ -2416,7 +2410,7 @@ export default function FootballGame() {
                     : "JOGAR AGORA"}
                   <span>
                     {gameMode === "local2p" ? "2 jogadores • " : ""}
-                    partida completa: 1min50
+                    partida completa: {matchMinutes} min
                   </span>
                 </button>
                 <button
@@ -2437,7 +2431,7 @@ export default function FootballGame() {
                   <Shield /> Marcação e linhas táticas
                 </span>
                 <span>
-                  <Gauge /> 2 tempos de 55 segundos
+                  <Gauge /> 2 tempos de {matchMinutes*30} segundos
                 </span>
               </div>
               <small className="original-note">
@@ -2890,7 +2884,7 @@ export default function FootballGame() {
       <TrainingHub open={trainingOpen} onOpenChange={setTrainingOpen} onPlay={launchTraining}/>
       {screen==='playing'&&!paused&&!replaying&&liveRating!==null&&<div className="career-live-rating" aria-label="Nota de desempenho"><small>SUA NOTA</small><b>{liveRating.toFixed(1)}</b><span>F / ✕ / A: pedir bola</span></div>}
       {screen==='playing'&&!paused&&!replaying&&deadBall&&<aside className="setpiece-panel">
-        {deadBall.penaltyDuel?<><strong>{deadBall.penaltyDuel.single?'PÊNALTI':`PÊNALTIS · ${deadBall.penaltyDuel.home}–${deadBall.penaltyDuel.away}`}</strong><p>{deadBall.penaltyDuel.side==='home'?'Mire com ↑ ↓ / analógico. Segure e solte chute.':'Goleiro: ↑ ↓ escolhe o lado; chute confirma o salto.'}</p><div className="penalty-directions">{[-1,0,1].map(v=><button key={v} onClick={()=>{const st=engineRef.current;if(st?.penaltyDuel){if(st.penaltyDuel.side==='home')st.penaltyDuel.aim=32+v*6;else commitPenaltyDive(st,'home',v);}}}>{v<0?'Esquerda':v>0?'Direita':'Centro'}</button>)}</div><label>Altura<input type="range" min="0.4" max="4.8" step=".1" value={deadBall.penaltyDuel.height} onChange={e=>{if(engineRef.current?.penaltyDuel)engineRef.current.penaltyDuel.height=Number(e.target.value);}}/></label></>:<><strong>{setPieceName(deadBall.setPiece!.kind)}</strong><label>Cobrador<select value={deadBall.setPiece!.takerId} disabled={deadBall.setPiece!.side==='away'&&deadBall.gameMode!=='local2p'} onChange={e=>{if(engineRef.current)chooseSetPieceTaker(engineRef.current,Number(e.target.value));}}>{deadBall.players.filter(p=>p.side===deadBall.setPiece!.side&&!p.sentOff&&p.role!=='GK').sort((a,b)=>b.shooting-a.shooting).map(p=><option key={p.id} value={p.id}>{p.name} · chute {p.shooting} · passe {p.passing}</option>)}</select></label><p>↑ ↓ mira · ← → curva/profundidade · Q / L1 troca cobrador</p><label>Curva<input type="range" min="-1" max="1" step=".05" value={deadBall.setPiece!.curve??0} onChange={e=>{if(engineRef.current?.setPiece)engineRef.current.setPiece.curve=Number(e.target.value);}}/></label></>}
+        {deadBall.penaltyDuel?<><strong>{deadBall.penaltyDuel.single?'PÊNALTI':`PÊNALTIS · ${deadBall.penaltyDuel.home}–${deadBall.penaltyDuel.away}`}</strong><p>{deadBall.penaltyDuel.side==='home'?'Mire com ↑ ↓ / analógico. Segure e solte chute.':'Goleiro: ↑ ↓ escolhe o lado; chute confirma o salto.'}</p><div className="penalty-directions">{[-1,0,1].map(v=><button key={v} onClick={()=>{const st=engineRef.current;if(st?.penaltyDuel){if(st.penaltyDuel.side==='home')st.penaltyDuel.aim=32+v*6;else commitPenaltyDive(st,'home',v);}}}>{v<0?'Esquerda':v>0?'Direita':'Centro'}</button>)}</div><label>Altura<input type="range" min="0.4" max="4.8" step=".1" value={deadBall.penaltyDuel.height} onChange={e=>{if(engineRef.current?.penaltyDuel)engineRef.current.penaltyDuel.height=Number(e.target.value);}}/></label></>:<><strong>{setPieceName(deadBall.setPiece!.kind)}</strong><label>Cobrador<select value={deadBall.setPiece!.takerId} disabled={deadBall.setPiece!.side==='away'&&deadBall.gameMode!=='local2p'} onChange={e=>{if(engineRef.current)chooseSetPieceTaker(engineRef.current,Number(e.target.value));}}>{deadBall.players.filter(p=>p.side===deadBall.setPiece!.side&&!p.sentOff&&(deadBall.setPiece!.kind==='goalKick'?p.role==='GK':p.role!=='GK')).sort((a,b)=>b.shooting-a.shooting).map(p=><option key={p.id} value={p.id}>{p.name} · chute {p.shooting} · passe {p.passing}</option>)}</select></label><p>↑ ↓ mira · ← → curva/profundidade · Q / L1 troca cobrador</p><label>Curva<input type="range" min="-1" max="1" step=".05" value={deadBall.setPiece!.curve??0} onChange={e=>{if(engineRef.current?.setPiece)engineRef.current.setPiece.curve=Number(e.target.value);}}/></label></>}
         <progress aria-label="Força da cobrança" max={1} value={deadBall.shotCharge}/>
       </aside>}
       {matchCentre&&<MatchCentre state={matchCentre} onFormation={(side,formation)=>{const state=matchCentre.preMatch?preMatchRef.current:engineRef.current;if(state&&applyFormation(state,side,formation))setMatchCentre(structuredClone(state));}} onClose={()=>setMatchCentre(null)} onTactics={(side,tactic,pressure,width)=>{const state=matchCentre.preMatch?preMatchRef.current:engineRef.current;if(state&&setLiveTactics(state,side,tactic,pressure,width))setMatchCentre(structuredClone(state));}} onSub={(side,id,index)=>{const state=matchCentre.preMatch?preMatchRef.current:engineRef.current;if(!state)return false;const changed=substitutePlayer(state,side,id,index);setMatchCentre(structuredClone(state));return changed;}}/>}

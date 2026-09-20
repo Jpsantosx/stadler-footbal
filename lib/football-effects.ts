@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { EffectComposer } from "three/addons/postprocessing/EffectComposer.js";
 import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
+import { SSAOPass } from "three/addons/postprocessing/SSAOPass.js";
 import { BokehPass } from "three/addons/postprocessing/BokehPass.js";
 import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js";
 import { ShaderPass } from "three/addons/postprocessing/ShaderPass.js";
@@ -72,6 +73,7 @@ export function createWearOverlay(scene: THREE.Scene) {
 export function createPostProcessing(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.PerspectiveCamera) {
   const composer = new EffectComposer(renderer);
   const render = new RenderPass(scene, camera);
+  const ao=new SSAOPass(scene,camera,1280,720,12);ao.kernelRadius=4;ao.minDistance=.001;ao.maxDistance=.04;
   const bokeh = new BokehPass(scene, camera, { focus: 20, aperture: 0.0016, maxblur: 0.009 });
   bokeh.materialBokeh.defines.PERSPECTIVE_CAMERA = 1;
   const dofUniforms = bokeh.uniforms as Record<string, THREE.IUniform>;
@@ -93,19 +95,21 @@ export function createPostProcessing(renderer: THREE.WebGLRenderer, scene: THREE
       }`,
   });
   const output = new OutputPass();
-  composer.addPass(render); composer.addPass(blur); composer.addPass(bokeh); composer.addPass(bloom); composer.addPass(output);
+  composer.addPass(render); composer.addPass(ao); composer.addPass(blur); composer.addPass(bokeh); composer.addPass(bloom); composer.addPass(output);
   const a = new THREE.Vector3(), b = new THREE.Vector3();
   return {
     resize(width: number, height: number, dpr: number) {
       composer.setPixelRatio(Math.min(dpr, 2)); composer.setSize(width, height);
       dofUniforms.aspect.value = width / height; blur.uniforms.aspect.value = width / height;
     },
-    render(state: MatchState, quality: Quality, dt: number) {
+    render(state: MatchState, quality: Quality, dt: number, focusPlayer=false) {
       const cinematic = !!state.celebration;
       bloom.enabled = quality !== "performance"; bloom.strength = cinematic ? 0.36 : 0.22;
-      bokeh.enabled = cinematic && quality !== "performance";
+      ao.enabled=quality==='ultra';
+      bokeh.enabled = (cinematic||focusPlayer) && quality !== "performance";
       if (bokeh.enabled) {
-        a.set(50, 3.3, 34).applyMatrix4(camera.matrixWorldInverse);
+        const p=state.players.find(p=>p.id===(state.lockedPlayerId??state.selectedId));
+        a.set(cinematic?50:p?.x??state.ball.x,cinematic?3.3:1.8,cinematic?34:p?.y??state.ball.y).applyMatrix4(camera.matrixWorldInverse);
         dofUniforms.focus.value = -a.z;
       }
       blur.enabled = !cinematic && !state.paused && quality === "ultra";

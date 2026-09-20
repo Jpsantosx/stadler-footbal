@@ -1,3 +1,4 @@
+import { startSlide, updateSlide, slideImpact, type SlideState } from './football-slide.ts';
 import { beginPenaltyDuel, stepPenaltyDuel, type PenaltyDuel } from './football-penalties.ts';
 import catalog from "../data/football-catalog.json" with { type: "json" };
 import { beginTitleCelebration, resolveShootout, type TitleCelebration, type Shootout } from "./football-presentation.ts";
@@ -200,6 +201,7 @@ export type Player = {
   keeperReactionTimer: number;
   keeperCommitTimer: number;
   keeperTargetY: number;
+  slideState?: SlideState;
   slideTimer: number;
   slideHit: boolean;
   stealTimer: number;
@@ -1025,6 +1027,7 @@ export function resetPositions(state: MatchState, kickoffSide: Side) {
     player.vy = 0;
     player.facingX = attackDirectionFor(state, player.side);
     player.facingY = 0;
+    player.slideState=undefined;
     player.slideTimer = 0;
     player.slideHit = false;
     player.stealTimer = 0;
@@ -1494,9 +1497,7 @@ export function startSetPiece(
       (a, b) =>
         distance(a.x, a.y, spotX, spotY) - distance(b.x, b.y, spotX, spotY),
     );
-  const taker =
-    candidates.find(p => p.id === state.lockedPlayerId) ?? candidates[0] ??
-    state.players.find((player) => player.side === side && !player.sentOff);
+  const taker = candidates[0];
   if (!taker) return;
 
   state.ball.owner = null;
@@ -1516,6 +1517,7 @@ export function startSetPiece(
   state.chargingAwayShot = false;
   state.frozen = 0;
   state.players.forEach((player) => {
+    player.slideState=undefined;
     player.slideTimer = 0;
     player.slideHit = false;
     player.stealTimer = 0;
@@ -1624,7 +1626,9 @@ export function startSetPiece(
 export function executeSetPiece(state: MatchState, action: "pass" | "shot") {
   const piece = state.setPiece;
   if (!piece || !piece.ready) return;
-  const taker = getPlayer(state, piece.takerId);
+  let taker = getPlayer(state, piece.takerId);
+  if(piece.kind==='goalKick'&&(taker?.role!=='GK'||taker.side!==piece.side||taker.sentOff)){taker=state.players.find(p=>p.side===piece.side&&p.role==='GK'&&!p.sentOff);if(taker)piece.takerId=taker.id;}
+  if(piece.kind!=='goalKick'&&(taker?.role==='GK'||taker?.side!==piece.side)){chooseSetPieceTaker(state);taker=getPlayer(state,piece.takerId);}
   if (!taker || taker.sentOff) {
     state.setPiece = null;
     return;
@@ -1672,7 +1676,7 @@ export function executeSetPiece(state: MatchState, action: "pass" | "shot") {
     const target = choosePassTarget(state, taker);
     targetX = target?.x ?? piece.spotX + attackDirection * 32;
     targetY = target?.y ?? 32;
-    power = 38;
+    power = 30 + setPieceCharge*22;
     kickKind = "clear";
     lift = 9.2;
   } else if (piece.kind === "offside") {
@@ -1877,7 +1881,7 @@ export function beginTackle(state: MatchState, player: Player, sliding = false) 
   player.tackleReadiness = 0;
   player.tackleCooldown = clamp((sliding ? 1.55 : 0.86) / factor, sliding ? 1.15 : 0.58, sliding ? 1.9 : 1.1);
   player.stamina = Math.max(0, player.stamina - (sliding ? 8 : 3));
-  if (sliding) { player.slideTimer = 0.5; player.slideHit = false; }
+  if (sliding) { startSlide(player); }
   else { player.stealTimer = clamp(0.27 / factor, 0.19, 0.34); player.stealHit = false; }
   return true;
 }
@@ -1948,6 +1952,7 @@ export function movePlayer(
 }
 
 export function updateSpecialMovement(player: Player, dt: number) {
+  if(player.slideState)return updateSlide(player,dt);
   if (player.slideTimer > 0) {
     player.slideTimer = Math.max(0, player.slideTimer - dt);
     player.x += player.vx * dt;
@@ -2171,13 +2176,14 @@ export function resolveKeeperSmothers(state: MatchState) {
 
 export function resolveSlideTackles(state: MatchState, demo: boolean) {
   for (const player of state.players) {
-    if (player.slideTimer <= 0 || player.slideHit || player.sentOff) continue;
+    if (player.slideTimer <= 0 || player.slideHit || player.sentOff || player.slideState?.phase==='recover') continue;
     const contact = tackleContact(state, player, true);
     const victim = getPlayer(state, state.ball.owner) ?? state.players.find(p =>
       p.side !== player.side && !p.sentOff && distance(p.x, p.y, player.x, player.y) < 1.25);
     if (contact === "none" && !victim) continue;
     if (contact === "none" && (state.ball.owner !== null || !victim)) continue;
     player.slideHit = true;
+    slideImpact(player,contact==='ball'?'ball':'foul');
     if (contact === "ball") {
       awardTacklePossession(state, player, victim);
       setMessage(state, "CARRINHO NA BOLA", 0.6);
@@ -3833,7 +3839,7 @@ export function substitutePlayer(state: MatchState, side: Side, outgoingId: numb
     endurance: clamp(seed[2]+2,45,96), archetype: playerArchetypeFor(seed[3] ?? outgoing.role, attributes),
     preferredFoot: seedFromName(seed[0])%4===0?'left':'right', weakFoot: 2+seedFromName(seed[0])%4,
     trait: (['technical','aerial','speed','power'] as const)[seedFromName(seed[0])%4], appearance: undefined,
-    action:'none',actionTimer:0,skillCooldown:0,stumbleTimer:0,slideTimer:0,stealTimer:0,
+    action:'none',actionTimer:0,skillCooldown:0,stumbleTimer:0,slideState:undefined,slideTimer:0,stealTimer:0,
     yellowCards:0,vx:0,vy:0,controlShield:0,decisionCooldown:.6 });
   state.players[state.players.indexOf(outgoing)] = fresh;
   bench!.splice(benchIndex,1);
@@ -3915,7 +3921,7 @@ export function applyFormation(state:MatchState,side:Side,formation:FormationId)
 
 export function chooseSetPieceTaker(state:MatchState,id?:number){
   const piece=state.setPiece;if(!piece)return false;
-  const candidates=state.players.filter(p=>p.side===piece.side&&!p.sentOff&&p.role!=='GK').sort((a,b)=>b.shooting-a.shooting);
+  const candidates=state.players.filter(p=>p.side===piece.side&&!p.sentOff&&(piece.kind==='goalKick'?p.role==='GK':p.role!=='GK')).sort((a,b)=>b.shooting-a.shooting);
   const next=id?candidates.find(p=>p.id===id):candidates[(candidates.findIndex(p=>p.id===piece.takerId)+1)%candidates.length];
   const previous=getPlayer(state,piece.takerId);if(!next||!previous)return false;
   const pos={x:next.x,y:next.y};next.x=previous.x;next.y=previous.y;previous.x=pos.x;previous.y=pos.y;

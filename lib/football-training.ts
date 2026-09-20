@@ -15,7 +15,7 @@ export function resetTraining(state: MatchState) {
   const t=state.training;if(!t)return;
   const p=state.players.find(p=>p.side==='home'&&p.role==='FW')!;
   const keeper=state.players.find(p=>p.side==='away'&&p.role==='GK')!;
-  for(const q of state.players){q.sentOff=q!==p&&q!==keeper;q.vx=0;q.vy=0;q.action='none';q.actionTimer=0;q.skillCooldown=0;q.stamina=100;q.stumbleTimer=0;q.slideTimer=0;q.stealTimer=0;}
+  for(const q of state.players){q.sentOff=q!==p&&q!==keeper;q.vx=0;q.vy=0;q.action='none';q.actionTimer=0;q.skillCooldown=0;q.stamina=100;q.stumbleTimer=0;q.slideState=undefined;q.slideTimer=0;q.stealTimer=0;}
   state.lockedPlayerId=p.id;state.selectedId=p.id;state.setPiece=null;state.penaltyDuel=undefined;state.paused=false;state.finished=false;
   state.shotCharge=0;state.chargingShot=false;state.frozen=0;state.passIntent=null;state.oneTwo=undefined;state.goalFrame=undefined;
   p.x=t.kind==='dribble'?52:t.kind==='bicycle'?83:75;p.y=32;p.facingX=1;p.facingY=0;

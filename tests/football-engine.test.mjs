@@ -1129,3 +1129,59 @@ test('Sony raw profile is usable without standard mapping and phantom unmapped b
  padButton(p,13,true);driver.poll([p],'solo','playing',0,profiles);padButton(p,1,true);
  const frame=driver.poll([p],'solo','playing',16,profiles);assert.equal(frame.infos[0].usable,true);assert.ok(frame.events.some(e=>e.action==='pass'));
 });
+
+test('a complete playable shootout settles the cup final once and preserves regulation score',()=>{
+ const s=match();s.gameMode='local2p';s.cupRound=3;s.cupFinal=true;s.interactivePenalties=true;s.half=2;s.remaining=0;
+ defense.finishMatch(s);
+ for(let i=0;i<3000&&!s.finished;i++){
+  const d=s.penaltyDuel;
+  if(d?.phase==='aim'){
+   d.aim=d.side==='home'?38:32;s.shotCharge=s.awayShotCharge=.55;
+   commitPenaltyDive(s,d.side==='home'?'away':'home',d.side==='home'?-1:0);strikePenalty(s,d.side);
+  }
+  updateMatch(s,input(),1/120,false);
+ }
+ assert.equal(s.finished,true);assert.equal(s.winner,'home');assert.equal(s.shootout.home,3);assert.equal(s.shootout.away,0);
+ assert.equal(s.homeScore,0);assert.equal(s.awayScore,0);assert.ok(s.celebration);const result=structuredClone(s.shootout);defense.finishMatch(s);assert.deepEqual(s.shootout,result);
+});
+
+import * as THREE from 'three';
+import { humanSurface,faceMorphGeometry } from '../lib/football-human-geometry.ts';
+import { updateAthleteShape } from '../lib/football-athlete.ts';
+import { startSlide,updateSlide,slideImpact,slidePose } from '../lib/football-slide.ts';
+
+test('shared 3D face has outward normals and live sliders update morphs without rebuilding',()=>{
+ const geometry=faceMorphGeometry(),face=new THREE.Mesh(geometry),a={face,head:new THREE.Group(),body:new THREE.Group()};
+ const position=geometry.getAttribute('position'),normal=geometry.getAttribute('normal');
+ assert.ok(position.count>1200);assert.equal(geometry.morphAttributes.position.length,5);
+ const ring=humanSurface([[-1,.5,.4],[1,.5,.4]]),p=ring.getAttribute('position'),n=ring.getAttribute('normal');
+ assert.ok(p.getX(10)*n.getX(10)+p.getZ(10)*n.getZ(10)>0);
+ updateAthleteShape(a,{height:200,weight:95,jaw:1.4,nose:.7,mouth:1.2,eyes:1.1,eyeSize:.8});
+ assert.equal(face.geometry,geometry);assert.ok(Math.abs(face.morphTargetInfluences[0]-.4)<1e-8);assert.ok(a.body.scale.y>1.1);
+ assert.ok([...normal.array].every(Number.isFinite));ring.dispose();geometry.dispose();face.material.dispose();
+});
+
+test('goal kicks cannot be reassigned to outfield players, even through a stale UI command',()=>{
+ const s=match();defense.startSetPiece(s,'goalKick','home',5,32);const keeper=s.players.find(p=>p.side==='home'&&p.role==='GK'),outfield=s.players.find(p=>p.side==='home'&&p.role==='FW');
+ assert.equal(s.setPiece.takerId,keeper.id);assert.equal(defense.chooseSetPieceTaker(s,outfield.id),false);
+ s.setPiece.takerId=outfield.id;s.setPiece.ready=true;defense.executeSetPiece(s,'pass');assert.equal(s.ball.lastPlayerId,keeper.id);
+ for(const kind of ['freeKick','corner','throwIn','penalty']){defense.startSetPiece(s,kind,'home',70,20);assert.notEqual(s.players.find(p=>p.id===s.setPiece.takerId).role,'GK');assert.equal(defense.chooseSetPieceTaker(s,keeper.id),false);}
+});
+
+test('both goal lines award corners only after the defending side touched the ball',()=>{
+ for(const right of [true,false])for(const defenderTouch of [true,false]){
+  const s=match();s.players.forEach(p=>p.sentOff=true);s.players.find(p=>p.side==='home'&&p.role==='GK').sentOff=false;s.players.find(p=>p.side==='away'&&p.role==='GK').sentOff=false;
+  s.players.find(p=>p.side==='home'&&p.role==='FW').sentOff=false;s.players.find(p=>p.side==='away'&&p.role==='FW').sentOff=false;
+  const attacker=right?'home':'away',defender=right?'away':'home';s.homeAttacksRight=true;
+  Object.assign(s.ball,{owner:null,x:right?99.8:.2,y:10,z:1,vx:right?30:-30,vy:0,vz:0,lastTouch:defenderTouch?defender:attacker});
+  updateBall(s,.02,false);assert.equal(s.setPiece.kind,defenderTouch?'corner':'goalKick');assert.equal(s.setPiece.side,defenderTouch?attacker:defender);
+ }
+});
+
+test('slide tackles transition through fall, frictional slide, impact and recovery',()=>{
+ const p=match().players.find(p=>p.role==='DF');p.vx=20;p.vy=0;startSlide(p);assert.equal(p.slideState.phase,'fall');
+ for(let i=0;i<20;i++)updateSlide(p,.01);assert.equal(p.slideState.phase,'slide');assert.ok(p.vx<20&&p.vx>0);assert.ok(slidePose(p).ground>.9);
+ slideImpact(p,'ball');assert.equal(p.slideState.phase,'impact');
+ for(let i=0;i<15;i++)updateSlide(p,.01);assert.equal(p.slideState.phase,'recover');
+ for(let i=0;i<45;i++)updateSlide(p,.01);assert.equal(p.slideState,undefined);assert.equal(p.slideTimer,0);assert.equal(p.vx,0);
+});
