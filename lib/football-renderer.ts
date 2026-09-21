@@ -69,12 +69,13 @@ function drawStadium(
   ctx: CanvasRenderingContext2D,
   view: View,
   quality: Quality,
-  lighting: "night" | "day" = "night",
+  lighting: "night" | "sunset" | "day" = "night",
 ) {
+  const sunset = lighting === "sunset";
   const bg = ctx.createLinearGradient(0, 0, 0, view.height);
-  bg.addColorStop(0, lighting === "day" ? "#809ba9" : "#071018");
-  bg.addColorStop(.45, lighting === "day" ? "#547680" : "#101b22");
-  bg.addColorStop(1, lighting === "day" ? "#25444b" : "#020506");
+  bg.addColorStop(0, lighting === "day" ? "#809ba9" : sunset ? "#c27667" : "#071018");
+  bg.addColorStop(.45, lighting === "day" ? "#547680" : sunset ? "#77596a" : "#101b22");
+  bg.addColorStop(1, lighting === "day" ? "#25444b" : sunset ? "#26313a" : "#020506");
   ctx.fillStyle = bg;
   ctx.fillRect(0, 0, view.width, view.height);
 
@@ -86,8 +87,8 @@ function drawStadium(
     0,
     view.width * 0.65,
   );
-  glow.addColorStop(0, "rgba(105,196,255,.20)");
-  glow.addColorStop(1, "rgba(7,16,24,0)");
+  glow.addColorStop(0, sunset ? "rgba(255,174,105,.28)" : "rgba(105,196,255,.20)");
+  glow.addColorStop(1, sunset ? "rgba(82,37,34,0)" : "rgba(7,16,24,0)");
   ctx.fillStyle = glow;
   ctx.fillRect(0, 0, view.width, view.height * 0.55);
 
