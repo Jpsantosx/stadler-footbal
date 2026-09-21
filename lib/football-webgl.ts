@@ -665,13 +665,17 @@ export function createStadiumRenderer(
         a.shirt.userData.dirt.value=p.dirt??0;
         a.hairCards.rotation.x=Math.sin(state.elapsed*7+p.id)*Math.hypot(p.vx,p.vy)*.002;
         const detailDistance=camera.position.distanceTo(a.root.position);
-        const showFine=quality==='ultra'?detailDistance<82:quality==='high'?detailDistance<58:quality==='balanced'?detailDistance<30:false;
-        a.detailObjects.forEach(object=>object.visible=showFine);
-        a.hairCards.visible=quality!=='performance'&&detailDistance<(quality==='ultra'?96:quality==='high'?72:42);
+        const cinematicDetail=state.replayView||presentation.camera==='pro'||presentation.camera==='close'||!!ceremony;
+        const lod=cinematicDetail&&detailDistance<48?0:detailDistance<42?0:detailDistance<72?1:detailDistance<108?2:3;
+        const showEssential=quality!=='performance'&&lod<3;
+        const showFine=(quality==='ultra'||quality==='high')&&lod===0;
+        a.essentialObjects.forEach(object=>object.visible=showEssential);
+        a.fineObjects.forEach(object=>object.visible=showFine);
+        a.hairCards.visible=quality!=='performance'&&lod<3;
         a.body.rotation.set(poseFrame.lean,poseFrame.heading,poseFrame.bank);
         a.body.position.y=poseFrame.bob;
         for(let limb=0;limb<2;limb++) {
-          a.legs[limb].rotation.x=poseFrame.stride[limb];a.knees[limb].rotation.x=poseFrame.knees[limb];
+          a.legs[limb].rotation.x=poseFrame.stride[limb];a.knees[limb].rotation.x=poseFrame.knees[limb];a.feet[limb].rotation.x=poseFrame.feet[limb];
           a.arms[limb].rotation.set(poseFrame.arms[limb],0,limb ? -.06 : .06);
           a.elbows[limb].rotation.x=poseFrame.elbows[limb];
         }
@@ -716,6 +720,7 @@ export function createStadiumRenderer(
           const march = Math.sin((ceremony!.time + p.id) * 9) * (pose.gathered ? 0 : .65);
           a.legs[0].rotation.x = march; a.legs[1].rotation.x = -march;
           a.knees[0].rotation.x = a.knees[1].rotation.x = 0;
+          a.feet[0].rotation.x = a.feet[1].rotation.x = 0;
           a.arms[0].rotation.x = pose.captain ? -.9 - pose.lift * 1.9 : -pose.lift * 2.6;
           a.arms[1].rotation.x = a.arms[0].rotation.x;
           a.arms[0].rotation.z = pose.captain ? -.3 : .4;

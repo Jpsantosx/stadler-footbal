@@ -6,18 +6,80 @@ const smooth = (a: number, b: number, x: number) => {
   return t * t * (3 - 2 * t);
 };
 
+export type AthleteBuild = {
+  shoulders: number;
+  chest: number;
+  waist: number;
+  hips: number;
+  thigh: number;
+  calf: number;
+  arm: number;
+  head: number;
+  depth: number;
+};
+
+const DEFAULT_BUILD: AthleteBuild = {
+  shoulders: 1,
+  chest: 1,
+  waist: 1,
+  hips: 1,
+  thigh: 1,
+  calf: 1,
+  arm: 1,
+  head: 1,
+  depth: 1,
+};
+
 /** Original welded humanoid surface, shared by the studio and match renderer.
  * Positions, UVs, morphs and skin weights belong to ONE indexed mesh.
  * Limbs are deformed by bones; no separate limb meshes or joint caps exist.
  */
-export function createRiggedBody(materials: THREE.Material[], lowSocks = false, tucked = true) {
+export function createRiggedBody(
+  materials: THREE.Material[],
+  lowSocks = false,
+  tucked = true,
+  build: Partial<AthleteBuild> = {},
+) {
+  const shape: AthleteBuild = { ...DEFAULT_BUILD, ...build };
   const geometry = new THREE.BufferGeometry();
   const positions = new Float32Array(surface.position);
   const uv: number[] = [], indices: number[] = [], weights: number[] = [];
   const morphKeys = ['jaw', 'nose', 'mouth', 'eyes', 'eyeSize'];
   const morphs = morphKeys.map(() => new Float32Array(positions.length));
   for (let i = 0; i < positions.length; i += 3) {
-    const x = positions[i], y = positions[i + 1], z = positions[i + 2], side = x < 0 ? 0 : 1;
+    let x = positions[i], z = positions[i + 2];
+    const y = positions[i + 1], side = x < 0 ? 0 : 1;
+    const originalX = x;
+
+    // Shape the actual mesh instead of scaling the entire athlete uniformly.
+    // This keeps the welded surface while giving each position a distinct
+    // shoulder/chest/waist/leg silhouette.
+    if (y > 2.18) {
+      x *= shape.head;
+      z *= .94 + (shape.head - 1) * .45 + shape.depth * .06;
+    } else if (Math.abs(originalX) > .30 && y > 1.24) {
+      const shoulderX = side ? .34 : -.34;
+      x = shoulderX + (x - shoulderX) * shape.arm;
+      z *= .93 + shape.depth * .07;
+    } else if (y < 1.48) {
+      const legCenter = side ? .18 : -.18;
+      const legScale = y > .78
+        ? THREE.MathUtils.lerp(shape.thigh, shape.hips, smooth(1.18, 1.48, y))
+        : THREE.MathUtils.lerp(shape.calf, shape.thigh, smooth(.56, .90, y));
+      x = legCenter + (x - legCenter) * legScale;
+      z *= .94 + shape.depth * .06;
+    } else {
+      const torsoScale = y > 1.92
+        ? THREE.MathUtils.lerp(shape.chest, shape.shoulders, smooth(1.92, 2.15, y))
+        : y > 1.62
+          ? THREE.MathUtils.lerp(shape.waist, shape.chest, smooth(1.62, 1.92, y))
+          : THREE.MathUtils.lerp(shape.hips, shape.waist, smooth(1.42, 1.62, y));
+      x *= torsoScale;
+      z *= shape.depth;
+    }
+    positions[i] = x;
+    positions[i + 2] = z;
+
     uv.push((Math.atan2(x / .35, z / .195) / (Math.PI * 2) + 1) % 1, (y - 1.5) / .73);
     let ids = [0, 0, 0, 0], w = [1, 0, 0, 0];
     if (y > 2.18) {
@@ -27,6 +89,10 @@ export function createRiggedBody(materials: THREE.Material[], lowSocks = false, 
       const elbow = 1 - smooth(1.68, 1.87, y);
       ids = [0, 6 + side * 2, 7 + side * 2, 0];
       w = [1 - arm, arm * (1 - elbow), arm * elbow, 0];
+    } else if (y < .34) {
+      const foot = 1 - smooth(.13, .34, y);
+      ids = [3 + side * 2, 10 + side, 0, 0];
+      w = [1 - foot, foot, 0, 0];
     } else if (y < 1.48) {
       const leg = 1 - smooth(1.23, 1.48, y), knee = 1 - smooth(.69, .91, y);
       ids = [0, 2 + side * 2, 3 + side * 2, 0];
@@ -65,19 +131,23 @@ export function createRiggedBody(materials: THREE.Material[], lowSocks = false, 
 
   const hip = new THREE.Bone(); hip.name = 'pelvis';
   const head = new THREE.Bone(); head.name = 'head'; head.position.y = 2.51; hip.add(head);
-  const legs: THREE.Bone[] = [], knees: THREE.Bone[] = [], arms: THREE.Bone[] = [], elbows: THREE.Bone[] = [];
+  const legs: THREE.Bone[] = [], knees: THREE.Bone[] = [], feet: THREE.Bone[] = [], arms: THREE.Bone[] = [], elbows: THREE.Bone[] = [];
   for (const side of [-1, 1]) {
-    const leg = new THREE.Bone(), knee = new THREE.Bone(), arm = new THREE.Bone(), elbow = new THREE.Bone();
-    leg.name = `thigh-${side}`; knee.name = `shin-${side}`; arm.name = `upper-arm-${side}`; elbow.name = `forearm-${side}`;
-    leg.position.set(side * .18, 1.42, 0); knee.position.set(side * .015, -.62, 0);
+    const leg = new THREE.Bone(), knee = new THREE.Bone(), foot = new THREE.Bone(), arm = new THREE.Bone(), elbow = new THREE.Bone();
+    leg.name = `thigh-${side}`; knee.name = `shin-${side}`; foot.name = `foot-${side}`;
+    arm.name = `upper-arm-${side}`; elbow.name = `forearm-${side}`;
+    leg.position.set(side * .18, 1.42, 0); knee.position.set(side * .015, -.62, 0); foot.position.set(0, -.68, .025);
     arm.position.set(side * .34, 2.09, 0); elbow.position.set(side * .21, -.31, 0);
-    hip.add(leg, arm); leg.add(knee); arm.add(elbow);
-    legs.push(leg); knees.push(knee); arms.push(arm); elbows.push(elbow);
+    hip.add(leg, arm); leg.add(knee); knee.add(foot); arm.add(elbow);
+    legs.push(leg); knees.push(knee); feet.push(foot); arms.push(arm); elbows.push(elbow);
   }
-  const skeleton = new THREE.Skeleton([hip, head, legs[0], knees[0], legs[1], knees[1], arms[0], elbows[0], arms[1], elbows[1]]);
+  const skeleton = new THREE.Skeleton([
+    hip, head, legs[0], knees[0], legs[1], knees[1],
+    arms[0], elbows[0], arms[1], elbows[1], feet[0], feet[1],
+  ]);
   const mesh = new THREE.SkinnedMesh(geometry, materials); mesh.name = 'continuous-rigged-athlete';
   // Skeleton is a sibling of the mesh: animation transforms never move bind space.
   const root = new THREE.Group(); root.add(hip, mesh); root.updateMatrixWorld(true); mesh.bind(skeleton);
   mesh.castShadow = mesh.receiveShadow = true; mesh.frustumCulled = false;
-  return { mesh, root, head, legs, knees, arms, elbows };
+  return { mesh, root, head, legs, knees, feet, arms, elbows };
 }

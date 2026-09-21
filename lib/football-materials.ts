@@ -14,6 +14,14 @@ function normalFromHeight(source:THREE.CanvasTexture){
  for(let y=0;y<size;y++)for(let x=0;x<size;x++){const n=new THREE.Vector3((at(x-1,y)-at(x+1,y))*.5,(at(x,y-1)-at(x,y+1))*.5,1).normalize(),i=(y*size+x)*4;pixels[i]=(n.x*.5+.5)*255;pixels[i+1]=(n.y*.5+.5)*255;pixels[i+2]=(n.z*.5+.5)*255;pixels[i+3]=255;}
  const map=new THREE.DataTexture(pixels,size,size);map.wrapS=map.wrapT=THREE.RepeatWrapping;map.repeat.copy(source.repeat);map.magFilter=THREE.LinearFilter;map.minFilter=THREE.LinearMipmapLinearFilter;map.generateMipmaps=true;map.needsUpdate=true;return map;
 }
+export function athleteFabricMaterial(color:string,id:number,repeat=10){
+ const weave=texture(id+131,'cloth');weave.repeat.set(repeat,repeat);
+ return new THREE.MeshPhysicalMaterial({
+  color,normalMap:normalFromHeight(weave),normalScale:new THREE.Vector2(.48,.48),
+  roughnessMap:weave,roughness:.94,sheen:.5,sheenRoughness:.88,
+  sheenColor:new THREE.Color('#e6ebef'),envMapIntensity:.22
+ });
+}
 export function athleteMaterials(color:string,kit:THREE.Texture,id:number){
  const pores=texture(id+42,'skin'),weave=texture(id+19,'cloth');
  const skin=new THREE.MeshPhysicalMaterial({
