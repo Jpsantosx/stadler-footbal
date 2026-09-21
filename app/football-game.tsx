@@ -474,7 +474,12 @@ export default function FootballGame() {
         const preferences = JSON.parse(window.localStorage.getItem("stadler-presentation-v1") || "{}");
         setPresentation(parsePresentation(preferences));
         if (["performance","balanced","high","ultra"].includes(preferences.quality)) setQuality(preferences.quality);
-        else if (window.matchMedia("(pointer: coarse)").matches) setQuality("balanced");
+        else {
+          const coarse=window.matchMedia("(pointer: coarse)").matches;
+          const nav=navigator as Navigator & {deviceMemory?:number};
+          const modest=(nav.deviceMemory??8)<=4||(navigator.hardwareConcurrency??8)<=4;
+          setQuality(coarse?(modest?"performance":"balanced"):(modest?"balanced":"ultra"));
+        }
         if (typeof preferences.audioEnabled === "boolean") setAudioEnabled(preferences.audioEnabled);
       } catch { /* Corrupt or unavailable preferences use playable defaults. */ }
       try {

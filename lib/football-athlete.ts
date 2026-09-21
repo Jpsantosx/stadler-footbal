@@ -99,6 +99,7 @@ export type Athlete = {
   motion: Locomotion;
   elbows: THREE.Bone[];
   head: THREE.Bone;
+  detailObjects: THREE.Object3D[];
 };
 
 export function createFootballAthlete(p: Player, team: Team): Athlete {
@@ -109,6 +110,7 @@ export function createFootballAthlete(p: Player, team: Team): Athlete {
       p.appearance?.socks === 'low', p.appearance?.tucked !== false);
     const {root:body,mesh:torso,head:headGroup,legs,knees,arms,elbows}=rig;
     root.add(body);
+    const detailObjects: THREE.Object3D[]=[];
     const head=torso;
     const vertices=torso.geometry.getAttribute('position');
     const crestMap=new THREE.TextureLoader().load(`/crests/${team.id}.png`,undefined,undefined,()=>{crest.visible=false;});crestMap.colorSpace=THREE.SRGBColorSpace;
@@ -124,26 +126,26 @@ export function createFootballAthlete(p: Player, team: Team): Athlete {
     );
     hair.visible=hairStyle!=='bald'&&hairStyle!=='dreads';headGroup.add(hair);
     const cards=hairCards(p.appearance?.hair??'#251b17',hairStyle,p.id);cards.scale.set(.85,.82,.85);headGroup.add(cards);
-    const mouth=new THREE.Mesh(new THREE.SphereGeometry(1,16,8),standard('#8d5144'));mouth.name='mouth';mouth.scale.set(.045,.009,.008);mouth.position.set(0,-.105,.147);headGroup.add(mouth);
+    const mouth=new THREE.Mesh(new THREE.SphereGeometry(1,16,8),standard('#8d5144'));mouth.name='mouth';mouth.scale.set(.045,.009,.008);mouth.position.set(0,-.105,.147);headGroup.add(mouth);detailObjects.push(mouth);
     const beardStyle=p.appearance?.beard??'none';
     if(beardStyle==='stubble'||beardStyle==='full'){
       const beard=new THREE.Mesh(new THREE.SphereGeometry(1,24,16,0,Math.PI*2,Math.PI*.35,Math.PI*.6),new THREE.MeshStandardMaterial({color:p.appearance?.hair??'#251b17',roughness:1,transparent:true,opacity:beardStyle==='stubble'?.28:.88}));
-      beard.scale.set(.132,.13,.145);beard.position.set(0,-.09,.016);headGroup.add(beard);
+      beard.scale.set(.132,.13,.145);beard.position.set(0,-.09,.016);headGroup.add(beard);detailObjects.push(beard);
     } else if(beardStyle==='goatee'){
       const goatee=new THREE.Mesh(new THREE.SphereGeometry(1,16,10),standard(p.appearance?.hair??'#251b17'));
-      goatee.scale.set(.04,.055,.02);goatee.position.set(0,-.145,.145);headGroup.add(goatee);
+      goatee.scale.set(.04,.055,.02);goatee.position.set(0,-.145,.145);headGroup.add(goatee);detailObjects.push(goatee);
     } else if(beardStyle==='mustache'){
       for(const side of [-1,1]){
         const mustache=new THREE.Mesh(new THREE.BoxGeometry(.045,.012,.012),standard(p.appearance?.hair??'#251b17'));
-        mustache.position.set(side*.021,-.082,.158);mustache.rotation.z=side*.12;headGroup.add(mustache);
+        mustache.position.set(side*.021,-.082,.158);mustache.rotation.z=side*.12;headGroup.add(mustache);detailObjects.push(mustache);
       }
     }
     const faceSkin=new THREE.MeshStandardMaterial({color:skin.color.clone(),roughness:.72});
     const irisColor=['#4a3427','#2f4b3b','#334e68','#553a2b'][p.id%4];
     const noseTip=new THREE.Mesh(new THREE.SphereGeometry(.022,14,10),faceSkin);
-    noseTip.scale.set(.75,1,.72);noseTip.position.set(0,-.027,.173);headGroup.add(noseTip);
+    noseTip.scale.set(.75,1,.72);noseTip.position.set(0,-.027,.173);headGroup.add(noseTip);detailObjects.push(noseTip);
     for(const side of [-1,1]) {
-      const eye = new THREE.Group();eye.name='eye-'+side;eye.position.set(side*.063,.035,.16);headGroup.add(eye);
+      const eye = new THREE.Group();eye.name='eye-'+side;eye.position.set(side*.063,.035,.16);headGroup.add(eye);detailObjects.push(eye);
       const sclera=new THREE.Mesh(new THREE.SphereGeometry(.018,14,10),new THREE.MeshStandardMaterial({color:'#ece7df',roughness:.38}));
       sclera.scale.set(1,.72,.62);eye.add(sclera);
       const iris=new THREE.Mesh(new THREE.CircleGeometry(.0075,14),new THREE.MeshStandardMaterial({color:irisColor,roughness:.42}));
@@ -151,13 +153,33 @@ export function createFootballAthlete(p: Player, team: Team): Athlete {
       const pupil=new THREE.Mesh(new THREE.CircleGeometry(.0035,12),new THREE.MeshBasicMaterial({color:'#090908'}));
       pupil.position.z=.013;eye.add(pupil);
       const brow=new THREE.Mesh(new THREE.BoxGeometry(.058,.009,.009),standard(p.appearance?.hair??'#251b17'));
-      brow.position.set(side*.063,.077,.157);brow.rotation.z=-side*.1;headGroup.add(brow);
+      brow.position.set(side*.063,.077,.157);brow.rotation.z=-side*.1;headGroup.add(brow);detailObjects.push(brow);
       const ear=new THREE.Mesh(new THREE.SphereGeometry(.027,12,8),faceSkin);
-      ear.scale.set(.55,1,.5);ear.position.set(side*.158,.015,.012);headGroup.add(ear);
+      ear.scale.set(.55,1,.5);ear.position.set(side*.158,.015,.012);headGroup.add(ear);detailObjects.push(ear);
+      const hand=new THREE.Mesh(new THREE.SphereGeometry(.058,12,9),faceSkin);
+      hand.scale.set(.78,1.08,.68);hand.position.set(0,-.39,.015);elbows[side===-1?0:1].add(hand);detailObjects.push(hand);
       if(p.appearance?.wristband){
         const band = new THREE.Mesh(new THREE.TorusGeometry(.059,.012,8,20),standard('#f2efe7'));
-        band.rotation.x=Math.PI/2;band.position.set(side*.064,-.31,.009);elbows[side===-1?0:1].add(band);
+        band.rotation.x=Math.PI/2;band.position.set(side*.064,-.31,.009);elbows[side===-1?0:1].add(band);detailObjects.push(band);
       }
+    }
+    const collar=new THREE.Mesh(new THREE.TorusGeometry(.145,.014,8,24),new THREE.MeshStandardMaterial({color:p.role==='GK'?'#dce7d3':team.secondary,roughness:.86}));
+    collar.rotation.x=Math.PI/2;collar.position.set(0,2.17,.018);body.add(collar);detailObjects.push(collar);
+    const bootMat=new THREE.MeshPhysicalMaterial({color:p.appearance?.boots??'#e5e8de',roughness:.48,clearcoat:.18,clearcoatRoughness:.62});
+    const soleMat=new THREE.MeshStandardMaterial({color:'#16191b',roughness:.72});
+    for(let limb=0;limb<2;limb++){
+      const boot=new THREE.Group();
+      const upper=new THREE.Mesh(new THREE.BoxGeometry(.17,.095,.34),bootMat);
+      upper.position.set(0,-.69,.075);upper.rotation.x=-.08;boot.add(upper);
+      const toe=new THREE.Mesh(new THREE.SphereGeometry(.09,14,9),bootMat);
+      toe.scale.set(.92,.52,1.18);toe.position.set(0,-.695,.225);boot.add(toe);
+      const sole=new THREE.Mesh(new THREE.BoxGeometry(.185,.03,.37),soleMat);
+      sole.position.set(0,-.75,.075);boot.add(sole);
+      for(const x of [-.055,.055])for(const z of [-.02,.09,.19]){
+        const stud=new THREE.Mesh(new THREE.CylinderGeometry(.012,.017,.035,7),soleMat);
+        stud.position.set(x,-.78,z);boot.add(stud);
+      }
+      knees[limb].add(boot);detailObjects.push(boot);
     }
     body.traverse(object => {
       if (object instanceof THREE.Mesh) { object.castShadow = true; object.receiveShadow = true; }
@@ -187,7 +209,7 @@ export function createFootballAthlete(p: Player, team: Team): Athlete {
     label.scale.set(3, 3, 1);
     label.position.y = 3.15;
     root.add(label);
-    const avatar={face:head,torso,restCloth:new Float32Array(vertices.array),skin,shirt,hairCards:cards,identity:p.squadId,root,body,legs,knees,arms,elbows,head:headGroup,ring,label,motion:createLocomotion(p)};
+    const avatar={face:head,torso,restCloth:new Float32Array(vertices.array),skin,shirt,hairCards:cards,identity:p.squadId,root,body,legs,knees,arms,elbows,head:headGroup,ring,label,motion:createLocomotion(p),detailObjects};
     updateAthleteShape(avatar,p.appearance);return avatar;
   }
 

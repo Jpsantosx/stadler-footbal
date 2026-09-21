@@ -224,6 +224,23 @@ export function createStadiumRenderer(
   pitch.position.set(50, 0.04, 32);
   pitch.receiveShadow = true;
   scene.add(pitch);
+  const grassBlades=new THREE.InstancedMesh(
+    new THREE.PlaneGeometry(.026,.18),
+    new THREE.MeshStandardMaterial({color:"#356b37",roughness:1,side:THREE.DoubleSide,transparent:true,opacity:.88,alphaTest:.08}),
+    4200,
+  );
+  const grassDummy=new THREE.Object3D();
+  let grassSeed=918273;
+  for(let i=0;i<4200;i++){
+    grassSeed=(Math.imul(grassSeed,1664525)+1013904223)>>>0;const rx=(grassSeed>>>8)/0xffffff;
+    grassSeed=(Math.imul(grassSeed,1664525)+1013904223)>>>0;const rz=(grassSeed>>>8)/0xffffff;
+    grassSeed=(Math.imul(grassSeed,1664525)+1013904223)>>>0;const rr=(grassSeed>>>8)/0xffffff;
+    grassDummy.position.set(.45+rx*99.1,.12,.45+rz*63.1);
+    grassDummy.rotation.set(0,rr*Math.PI,0);
+    grassDummy.scale.set(1,.72+rr*.55,1);
+    grassDummy.updateMatrix();grassBlades.setMatrixAt(i,grassDummy.matrix);
+  }
+  grassBlades.castShadow=false;grassBlades.receiveShadow=false;scene.add(grassBlades);
   box(145, 0.5, 108, 50, -0.32, 32, "#29482d");
   // Terraced stands with aisles, roof supports and thousands of individual spectators.
   const crowd = new THREE.InstancedMesh(
@@ -301,6 +318,24 @@ export function createStadiumRenderer(
   };
   animateCrowdMaterial(crowd.material as THREE.Material);
   animateCrowdMaterial(crowdHeads.material as THREE.Material);
+  const stadiumFlags:THREE.Mesh[]=[];
+  for(let i=0;i<14;i++){
+    const flag=new THREE.Mesh(
+      new THREE.PlaneGeometry(2.2,1.15,4,2),
+      new THREE.MeshStandardMaterial({color:i%2?"#d8e5e8":"#294f61",roughness:.9,side:THREE.DoubleSide}),
+    );
+    flag.position.set(8+i*6.5,4.4+(i%4)*1.45,-9.1-(i%3)*1.4);
+    flag.rotation.y=Math.PI;scene.add(flag);stadiumFlags.push(flag);
+  }
+  const staffBodies=new THREE.InstancedMesh(new THREE.CylinderGeometry(.16,.2,.8,8),standard("#20282d"),14);
+  const staffHeads=new THREE.InstancedMesh(new THREE.SphereGeometry(.15,8,6),standard("#ba845f"),14);
+  for(let i=0;i<14;i++){
+    const side=i<7?-1:1,idx=i%7;
+    matrix.position.set(12+idx*12,.48,side<0?-4.8:68.8);matrix.rotation.set(0,side<0?0:Math.PI,0);matrix.updateMatrix();staffBodies.setMatrixAt(i,matrix.matrix);
+    matrix.position.y=1.02;matrix.updateMatrix();staffHeads.setMatrixAt(i,matrix.matrix);
+    staffBodies.setColorAt(i,new THREE.Color(i%3===0?"#e1a63a":i%3===1?"#263a46":"#73423a"));
+  }
+  scene.add(staffBodies,staffHeads);
   for (const z of [-31, 95]) {
     box(130, 1.1, 10, 50, 15, z, "#1b2833");
     for (let x = -10; x <= 110; x += 20)
@@ -314,6 +349,21 @@ export function createStadiumRenderer(
     ctx.textAlign = "center";
     ctx.fillText("STADLER FOOTBALL", 512, 520);
   });
+  const scoreCanvas=document.createElement("canvas");scoreCanvas.width=1024;scoreCanvas.height=256;
+  const scoreCtx=scoreCanvas.getContext("2d")!;
+  const scoreTexture=new THREE.CanvasTexture(scoreCanvas);scoreTexture.colorSpace=THREE.SRGBColorSpace;
+  const stadiumScoreboard=new THREE.Mesh(new THREE.PlaneGeometry(18,4.5),new THREE.MeshBasicMaterial({map:scoreTexture,toneMapped:false}));
+  stadiumScoreboard.position.set(50,14.3,94.35);stadiumScoreboard.rotation.y=Math.PI;scene.add(stadiumScoreboard);
+  let scoreboardKey="";
+  const paintScoreboard=(state:MatchState)=>{
+    const key=`${state.homeTeam.id}:${state.awayTeam.id}:${state.homeScore}:${state.awayScore}`;if(key===scoreboardKey)return;scoreboardKey=key;
+    scoreCtx.fillStyle="#06151b";scoreCtx.fillRect(0,0,1024,256);
+    scoreCtx.fillStyle="#aee36f";scoreCtx.fillRect(0,0,1024,10);
+    scoreCtx.fillStyle="#eef6f1";scoreCtx.textAlign="center";scoreCtx.textBaseline="middle";
+    scoreCtx.font="700 42px Arial";scoreCtx.fillText("STADLER FOOTBALL",512,45);
+    scoreCtx.font="900 92px Arial";scoreCtx.fillText(`${state.homeTeam.short}  ${state.homeScore}  —  ${state.awayScore}  ${state.awayTeam.short}`,512,150);
+    scoreCtx.font="600 25px Arial";scoreCtx.fillStyle="#a8b9bd";scoreCtx.fillText("LIVE MATCH",512,225);scoreTexture.needsUpdate=true;
+  };
   for (const z of [-3, 67])
     for (let x = 0; x < 100; x += 12.5) {
       const board = box(12.3, 1.2, 0.35, x + 6.25, 0.7, z, "#fff");
@@ -506,6 +556,10 @@ export function createStadiumRenderer(
             p.id,
             athlete(p, p.side === "home" ? state.homeTeam : state.awayTeam),
           );
+        stadiumFlags.forEach((flag,i)=>{
+          const colors=[state.homeTeam.primary,state.homeTeam.secondary,state.awayTeam.primary,state.awayTeam.secondary];
+          (flag.material as THREE.MeshStandardMaterial).color.set(colors[i%colors.length]);
+        });
         matchIdentity = state;
         lastTime = state.elapsed;
         previousHomeScore=state.homeScore;previousAwayScore=state.awayScore;
@@ -515,6 +569,8 @@ export function createStadiumRenderer(
       const dt = clamp(visualTime - lastTime, 0, 0.1);
       lastTime = visualTime;
       updateWear(state.pitchWear);crowdTime.value=state.elapsed+(state.celebration?.time??0);crowdReaction.value=state.celebration?1:state.netPulse;
+      paintScoreboard(state);
+      stadiumFlags.forEach((flag,i)=>{flag.rotation.z=Math.sin(visualTime*2.4+i*.87)*.045;flag.rotation.y=Math.PI+Math.sin(visualTime*1.8+i)*.055;});
       titleStage.update(state);
       const ceremony = state.celebration;
       if (state.homeScore!==previousHomeScore) goalNet=attackDirectionFor(state,"home")>0?1:0;
@@ -553,6 +609,9 @@ export function createStadiumRenderer(
       renderer.shadowMap.enabled = quality !== "performance";
       crowd.visible = quality !== "performance";
       crowdHeads.visible = highDetail;
+      staffBodies.visible=highDetail;staffHeads.visible=highDetail;
+      grassBlades.visible=highDetail&&(presentation.camera==='close'||presentation.camera==='pro'||state.replayView||!!ceremony);
+      stadiumFlags.forEach(flag=>flag.visible=quality!=='performance');
       sky.visible = quality !== "performance";
       const elevation=daylight?52:sunset?8:-15;
       const azimuth=daylight?118:sunset?246:218;
@@ -606,7 +665,9 @@ export function createStadiumRenderer(
         a.shirt.userData.dirt.value=p.dirt??0;
         a.hairCards.rotation.x=Math.sin(state.elapsed*7+p.id)*Math.hypot(p.vx,p.vy)*.002;
         const detailDistance=camera.position.distanceTo(a.root.position);
-        a.hairCards.visible=quality!=='performance'&&detailDistance<92;
+        const showFine=quality==='ultra'?detailDistance<82:quality==='high'?detailDistance<58:quality==='balanced'?detailDistance<30:false;
+        a.detailObjects.forEach(object=>object.visible=showFine);
+        a.hairCards.visible=quality!=='performance'&&detailDistance<(quality==='ultra'?96:quality==='high'?72:42);
         a.body.rotation.set(poseFrame.lean,poseFrame.heading,poseFrame.bank);
         a.body.position.y=poseFrame.bob;
         for(let limb=0;limb<2;limb++) {
