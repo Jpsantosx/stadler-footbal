@@ -842,6 +842,7 @@ test('render budget degrades sustained slow frames and recovers gradually withou
   assert.equal(result.scale, 1);
   assert.equal(result.quality, 'ultra');
   assert.deepEqual(budget.sample(1/25, 'balanced', false, true), {scale:1,quality:'balanced'});
+  assert.deepEqual(budget.sample(1/25, 'high', false, true), {scale:1,quality:'high'});
 });
 
 test('hidden/paused and isolated stalled frames never lower the render budget', () => {
@@ -850,6 +851,8 @@ test('hidden/paused and isolated stalled frames never lower the render budget', 
   assert.deepEqual(budget.sample(2, 'ultra', true, true), {scale:1,quality:'ultra'});
   assert.deepEqual(parsePresentation({camera:'close',lighting:'day',automatic:false,radar:false}),
     {camera:'close',lighting:'day',automatic:false,radar:false});
+  assert.deepEqual(parsePresentation({camera:'broadcast',lighting:'sunset',automatic:true,radar:true}),
+    {camera:'broadcast',lighting:'sunset',automatic:true,radar:true});
 });
 
 import { firstTouchDistance, shotBalance, performSkill, releaseShot, supportPosition, registerGoal } from '../lib/football-engine.ts';

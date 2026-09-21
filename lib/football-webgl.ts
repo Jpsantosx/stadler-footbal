@@ -1,4 +1,5 @@
 import { CSM } from "three/addons/csm/CSM.js";
+import { Sky } from "three/addons/objects/Sky.js";
 import { slidePose } from './football-slide';
 import { createFootballAthlete, updateAthleteCloth, type Athlete } from "./football-athlete";
 import { proCameraPose } from "./football-camera";
@@ -48,10 +49,12 @@ function pitchTexture() {
         seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
         const grain = (seed >>> 25) / 6;
         const variation = 1.5 * Math.sin(x / 381 + Math.sin(y / 247)) + Math.sin(y / 563 + x / 891);
+        // Extremely subtle mowing direction: readable as turf, never as neon bands.
+        const mowing = (((Math.floor(x / 256) + Math.floor(y / 512)) & 1) ? 1 : -1) * .65;
         const i = (y * 2048 + x) * 4;
-        pixels.data[i] = 36 + grain + variation;
-        pixels.data[i + 1] = 84 + grain + variation;
-        pixels.data[i + 2] = 39 + grain * 0.65 + variation;
+        pixels.data[i] = 36 + grain + variation + mowing;
+        pixels.data[i + 1] = 84 + grain + variation + mowing * 1.4;
+        pixels.data[i + 2] = 39 + grain * 0.65 + variation + mowing * .7;
         pixels.data[i + 3] = 255;
       }
     ctx.putImageData(pixels, 0, 0);
@@ -131,6 +134,15 @@ export function createStadiumRenderer(
   const scene = new THREE.Scene();
   scene.background = new THREE.Color("#101c28");
   scene.fog = new THREE.Fog("#16252e", 140, 285);
+  const sky = new Sky();
+  sky.scale.setScalar(360);
+  scene.add(sky);
+  const skyUniforms = sky.material.uniforms;
+  skyUniforms.turbidity.value = 7;
+  skyUniforms.rayleigh.value = 1.35;
+  skyUniforms.mieCoefficient.value = .006;
+  skyUniforms.mieDirectionalG.value = .82;
+  const sunPosition = new THREE.Vector3();
   const camera = new THREE.PerspectiveCamera(38, 16 / 9, .1, 400);
   let framing: CameraFrame = { x: 50, y: 32, span: 90 };
   let cameraMode = DEFAULT_PRESENTATION.camera;
@@ -167,6 +179,15 @@ export function createStadiumRenderer(
   fill.shadow.bias = -0.0003;
   fill.shadow.normalBias = 0.06;
   scene.add(fill, fill.target);
+  const stadiumLights = [
+    [-10, 44, -12], [110, 44, -12], [-10, 44, 78], [110, 44, 78],
+  ].map(([x,y,z]) => {
+    const light = new THREE.SpotLight("#e6f2ff", 0, 185, Math.PI * .34, .55, 1.25);
+    light.position.set(x,y,z);
+    light.target.position.set(50,0,32);
+    scene.add(light, light.target);
+    return light;
+  });
   const post = createPostProcessing(renderer, scene, camera);
   const standard = (color: string) =>
     new THREE.MeshStandardMaterial({ color, roughness: 0.86, metalness: 0 });
@@ -194,8 +215,8 @@ export function createStadiumRenderer(
   const pitch = new THREE.Mesh(
     new THREE.PlaneGeometry(100, 64),
     new THREE.MeshStandardMaterial({ map: pitchTexture(), roughness: 0.94,
-      normalMap: detailMaps.normal, normalScale: new THREE.Vector2(0.12, 0.12),
-      aoMap: detailMaps.ao, aoMapIntensity: 0.1 }),
+      normalMap: detailMaps.normal, normalScale: new THREE.Vector2(0.16, 0.16),
+      aoMap: detailMaps.ao, aoMapIntensity: 0.16 }),
   );
   const updateWear = createWearOverlay(scene);
   const titleStage = createTitleStage(scene);
@@ -252,9 +273,34 @@ export function createStadiumRenderer(
   }
   crowd.count = count;
   scene.add(crowd);
+  const crowdHeads = new THREE.InstancedMesh(
+    new THREE.SphereGeometry(.18, 8, 6),
+    standard("#b98a69"),
+    count,
+  );
+  const headDummy = new THREE.Object3D();
+  for (let i=0;i<count;i++) {
+    crowd.getMatrixAt(i,headDummy.matrix);
+    headDummy.matrix.decompose(headDummy.position,headDummy.quaternion,headDummy.scale);
+    headDummy.position.y += .53;
+    headDummy.scale.setScalar(.9);
+    headDummy.updateMatrix();
+    crowdHeads.setMatrixAt(i,headDummy.matrix);
+    crowdHeads.setColorAt(i,new THREE.Color(["#e0b18b","#ba835f","#8e5d42","#6d4432","#c99773"][i%5]));
+  }
+  crowdHeads.count=count;
+  scene.add(crowdHeads);
   const crowdTime={value:0},crowdReaction={value:0};
-  crowd.material.onBeforeCompile=shader=>{shader.uniforms.uCrowdTime=crowdTime;shader.uniforms.uCrowdReaction=crowdReaction;shader.vertexShader='uniform float uCrowdTime;uniform float uCrowdReaction;\n'+shader.vertexShader;shader.vertexShader=shader.vertexShader.replace('#include <begin_vertex>',`#include <begin_vertex>
- transformed.y+=max(0.0,sin(uCrowdTime*4.0+instanceMatrix[3].x*1.9+instanceMatrix[3].z))*(0.035+uCrowdReaction*0.22);`);};
+  const animateCrowdMaterial=(material:THREE.Material)=>{
+    material.onBeforeCompile=shader=>{
+      shader.uniforms.uCrowdTime=crowdTime;shader.uniforms.uCrowdReaction=crowdReaction;
+      shader.vertexShader='uniform float uCrowdTime;uniform float uCrowdReaction;\n'+shader.vertexShader;
+      shader.vertexShader=shader.vertexShader.replace('#include <begin_vertex>',`#include <begin_vertex>
+ transformed.y+=max(0.0,sin(uCrowdTime*4.0+instanceMatrix[3].x*1.9+instanceMatrix[3].z))*(0.035+uCrowdReaction*0.22);`);
+    };
+  };
+  animateCrowdMaterial(crowd.material as THREE.Material);
+  animateCrowdMaterial(crowdHeads.material as THREE.Material);
   for (const z of [-31, 95]) {
     box(130, 1.1, 10, 50, 15, z, "#1b2833");
     for (let x = -10; x <= 110; x += 20)
@@ -278,6 +324,22 @@ export function createStadiumRenderer(
         emissiveIntensity: 0.28,
       });
     }
+  // Technical area, benches, tunnel and broadcast hardware remove the empty-prototype feel.
+  for (const x of [34, 66]) {
+    box(13, .28, 2.4, x, .22, -6.4, "#26343b");
+    box(12.4, .55, .75, x, .58, -6.1, "#51646d");
+    for (let seat=-5;seat<=5;seat+=2) box(.72,.56,.68,x+seat,.95,-6.05,seat%4?"#243f4d":"#355765");
+    const canopy=box(13.2,2.1,.12,x,1.55,-7.15,"#b9d8e0");
+    canopy.material=new THREE.MeshPhysicalMaterial({color:"#a9ced8",transparent:true,opacity:.2,roughness:.2,metalness:.08,depthWrite:false});
+  }
+  box(7.8,3.4,4.8,50,1.7,-11,"#17242c");
+  box(6.4,.35,5.1,50,3.48,-10.9,"#52636c");
+  for (const x of [18,82]) {
+    box(.12,2.6,.12,x,1.3,-4.6,"#8b979d");
+    box(1.05,.52,.48,x,2.55,-4.6,"#172229");
+    box(.15,.85,.15,x-.42,1.75,-4.6,"#8b979d");
+    box(.15,.85,.15,x+.42,1.75,-4.6,"#8b979d");
+  }
   const nets: { mesh: THREE.LineSegments; rest: Float32Array }[] = [];
   function rod(a: THREE.Vector3, b: THREE.Vector3, r = 0.11) {
     const mesh = new THREE.Mesh(
@@ -356,9 +418,25 @@ export function createStadiumRenderer(
         ctx.fill();
       }
   });
+  const ballBump = canvasTexture(512, (ctx) => {
+    ctx.fillStyle="#777";ctx.fillRect(0,0,512,512);
+    ctx.strokeStyle="#111";ctx.lineWidth=8;
+    for(let y=0;y<512;y+=100)for(let x=0;x<512;x+=100){
+      ctx.beginPath();
+      for(let p=0;p<5;p++){
+        const a=p*Math.PI*2/5,px=x+(y%200?50:0)+Math.cos(a)*24,py=y+Math.sin(a)*24;
+        if(!p)ctx.moveTo(px,py);else ctx.lineTo(px,py);
+      }
+      ctx.closePath();ctx.stroke();
+    }
+  });
+  ballBump.colorSpace=THREE.NoColorSpace;
   const ball = new THREE.Mesh(
-    new THREE.SphereGeometry(0.52, 24, 16),
-    new THREE.MeshStandardMaterial({ map: ballMap, roughness: 0.55 }),
+    new THREE.SphereGeometry(0.52, 48, 32),
+    new THREE.MeshPhysicalMaterial({
+      map:ballMap,bumpMap:ballBump,bumpScale:.022,roughness:.46,
+      clearcoat:.12,clearcoatRoughness:.58,envMapIntensity:.5
+    }),
   );
   ball.castShadow = true;
   scene.add(ball);
@@ -371,6 +449,13 @@ export function createStadiumRenderer(
   ballLocator.rotation.x = -Math.PI / 2;
   scene.add(ballLocator);
   const trainingMarkers=TRAINING_GATES.map(g=>{const ring=new THREE.Mesh(new THREE.RingGeometry(2.5,3,40),new THREE.MeshBasicMaterial({color:0xa5ff64,side:THREE.DoubleSide,transparent:true,opacity:.8}));ring.rotation.x=-Math.PI/2;ring.position.set(g.x,.04,g.y);scene.add(ring);return ring;});
+  const playerContacts=new THREE.InstancedMesh(
+    new THREE.CircleGeometry(.6,24),
+    new THREE.MeshBasicMaterial({color:"#06120b",transparent:true,opacity:.16,depthWrite:false}),
+    32,
+  );
+  playerContacts.frustumCulled=false;scene.add(playerContacts);
+  const contactDummy=new THREE.Object3D();
   let previousNetPulse = 0;
   const guideGeometry=new THREE.BufferGeometry();guideGeometry.setAttribute('position',new THREE.BufferAttribute(new Float32Array(55*3),3));
   const guide=new THREE.Line(guideGeometry,new THREE.LineBasicMaterial({color:'#bfff71',transparent:true,opacity:.85,depthTest:false}));guide.renderOrder=8;scene.add(guide);
@@ -442,6 +527,11 @@ export function createStadiumRenderer(
         camera.fov = 42; camera.zoom = 1; camera.lookAt(50, ceremony.time<4.5?1.8:3.5, 33);
       } else if(state.penaltyDuel){
         camera.position.set(77,9,32);camera.fov=48;camera.zoom=1;camera.lookAt(99,1.5,32);
+      } else if(state.replayView){
+        const orbitSide=Math.sin(state.elapsed*.42)>=0?1:-1;
+        const replayTarget=new THREE.Vector3(state.ball.x-10,6.8,state.ball.y+orbitSide*10.5);
+        camera.position.lerp(replayTarget,1-Math.exp(-4.5*Math.max(dt,.016)));
+        camera.fov=44;camera.zoom=1;camera.lookAt(state.ball.x,1.15,state.ball.y);
       } else if(presentation.camera==='pro'&&state.gameMode!=='local2p'&&!state.replayView&&!state.setPiece){
         const pose=proCameraPose(state);const target=new THREE.Vector3(pose.x,pose.y,pose.z);
         if(cameraMode!=='pro')camera.position.copy(target);else camera.position.lerp(target,1-Math.exp(-7*dt));cameraMode='pro';
@@ -456,17 +546,31 @@ export function createStadiumRenderer(
         camera.lookAt(position.lookX, 0, position.lookY);
       }
       camera.updateProjectionMatrix(); camera.updateMatrixWorld();csm.updateFrustums();csm.update();
-      csm.lights.forEach(light=>{light.intensity=quality==='performance'?0:presentation.lighting==='day'?2.1:1.5;light.castShadow=quality!=='performance';});
+      const highDetail=quality==="high"||quality==="ultra";
+      const daylight=presentation.lighting==="day",sunset=presentation.lighting==="sunset";
+      const csmIntensity=daylight?2.05:sunset?1.65:1.45;
+      csm.lights.forEach(light=>{light.intensity=quality==='performance'?0:csmIntensity;light.castShadow=quality!=='performance';});
       renderer.shadowMap.enabled = quality !== "performance";
       crowd.visible = quality !== "performance";
-      const daylight = presentation.lighting === "day";
-      (scene.background as THREE.Color).set(daylight ? "#a5c3cd" : "#101c28");
-      if (scene.fog) scene.fog.color.set(daylight ? "#adc5ca" : "#16252e");
-      hemi.intensity = daylight ? 2.4 : 1.05;
-      key.intensity = quality==='performance'?(daylight?3.9:3.1):(daylight?1.5:1.1); fill.intensity = daylight ? .55 : 1.25;
-      key.color.set(daylight ? "#fff2d3" : "#e5efff");
-      key.position.set(daylight ? 10 : -10, daylight ? 68 : 45, -12);
-      renderer.toneMappingExposure = daylight ? 1.04 : 1.12;
+      crowdHeads.visible = highDetail;
+      sky.visible = quality !== "performance";
+      const elevation=daylight?52:sunset?8:-15;
+      const azimuth=daylight?118:sunset?246:218;
+      sunPosition.setFromSphericalCoords(1,THREE.MathUtils.degToRad(90-elevation),THREE.MathUtils.degToRad(azimuth));
+      skyUniforms.sunPosition.value.copy(sunPosition);
+      skyUniforms.turbidity.value=daylight?6.5:sunset?9.5:4.5;
+      skyUniforms.rayleigh.value=daylight?1.45:sunset?2.45:.25;
+      skyUniforms.mieCoefficient.value=sunset?.012:.006;
+      (scene.background as THREE.Color).set(daylight?"#a8c8d3":sunset?"#d89565":"#0b1521");
+      if(scene.fog)scene.fog.color.set(daylight?"#b5ccd1":sunset?"#b77f64":"#17242c");
+      hemi.intensity=daylight?2.25:sunset?1.45:1.0;
+      key.intensity=quality==='performance'?(daylight?3.7:sunset?3.25:3.0):(daylight?1.45:sunset?1.35:1.05);
+      fill.intensity=daylight?.55:sunset?.75:1.2;
+      key.color.set(daylight?"#fff3d8":sunset?"#ffb46f":"#e4efff");
+      fill.color.set(daylight?"#cbe4ff":sunset?"#7ca7d3":"#99c3ff");
+      key.position.set(daylight?10:sunset?-35:-10,daylight?68:sunset?20:45,sunset?16:-12);
+      stadiumLights.forEach(light=>{light.intensity=daylight?0:sunset?(highDetail?95:50):(highDetail?310:150);});
+      renderer.toneMappingExposure=daylight?1.03:sunset?1.08:1.12;
       if (state.netPulse > 0 || previousNetPulse > 0) for (const [netIndex,net] of nets.entries()) {
         const positions=net.mesh.geometry.getAttribute("position");
         for(let i=0;i<positions.count;i++) {
@@ -477,8 +581,19 @@ export function createStadiumRenderer(
         positions.needsUpdate=true;
       }
       previousNetPulse = state.netPulse;
-      crowd.position.y=Math.abs(Math.sin(state.elapsed*13))*state.netPulse*.5;
+      crowd.position.y=0;crowdHeads.position.y=0;
       trainingMarkers.forEach((ring,i)=>{ring.visible=state.training?.kind==='dribble'&&state.training.checkpoint===i;});
+      let contactIndex=0;
+      for(const p of state.players){
+        if(p.sentOff)continue;
+        contactDummy.position.set(p.x,.065,p.y);
+        contactDummy.rotation.set(-Math.PI/2,0,0);
+        const stretch=1+Math.min(1,Math.hypot(p.vx,p.vy)/24)*.22;
+        contactDummy.scale.set(.9*stretch,.68,1);
+        contactDummy.updateMatrix();
+        playerContacts.setMatrixAt(contactIndex++,contactDummy.matrix);
+      }
+      playerContacts.count=contactIndex;playerContacts.instanceMatrix.needsUpdate=true;playerContacts.visible=!ceremony;
       for (const p of state.players) {
         let a = athletes.get(p.id)!;
         if(a.identity!==p.squadId){scene.remove(a.root);disposeObject(a.root);a=athlete(p,p.side==='home'?state.homeTeam:state.awayTeam);athletes.set(p.id,a);}
@@ -486,10 +601,12 @@ export function createStadiumRenderer(
         a.root.visible = ceremony ? !!pose : !p.sentOff;
         a.root.position.set(pose?.x ?? p.x, pose?.height ?? 0, pose?.y ?? p.y);
         const poseFrame=athletePose(p,a.motion,dt);
-        if(quality!=='performance')updateAthleteCloth(a,p,visualTime);
+        if(highDetail)updateAthleteCloth(a,p,visualTime);
         const sweat=clamp((100-p.stamina)/80,0,1);a.skin.clearcoat=sweat*.8;a.skin.roughness=.8-sweat*.35;
         a.shirt.userData.dirt.value=p.dirt??0;
-        a.hairCards.rotation.x=Math.sin(state.elapsed*7+p.id)*Math.hypot(p.vx,p.vy)*.002;a.hairCards.visible=quality!=='performance';
+        a.hairCards.rotation.x=Math.sin(state.elapsed*7+p.id)*Math.hypot(p.vx,p.vy)*.002;
+        const detailDistance=camera.position.distanceTo(a.root.position);
+        a.hairCards.visible=quality!=='performance'&&detailDistance<92;
         a.body.rotation.set(poseFrame.lean,poseFrame.heading,poseFrame.bank);
         a.body.position.y=poseFrame.bob;
         for(let limb=0;limb<2;limb++) {

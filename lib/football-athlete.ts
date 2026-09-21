@@ -113,18 +113,47 @@ export function createFootballAthlete(p: Player, team: Team): Athlete {
     const vertices=torso.geometry.getAttribute('position');
     const crestMap=new THREE.TextureLoader().load(`/crests/${team.id}.png`,undefined,undefined,()=>{crest.visible=false;});crestMap.colorSpace=THREE.SRGBColorSpace;
     const crest=new THREE.Mesh(new THREE.PlaneGeometry(.12,.14),new THREE.MeshStandardMaterial({map:crestMap,transparent:true,alphaTest:.1,roughness:.85,depthWrite:false}));crest.position.set(-.13,1.99,.19);body.add(crest);
-    const hair = new THREE.Mesh(new THREE.SphereGeometry(1,24,16,0,Math.PI*2,0,Math.PI*.48),
+    const hairStyle=p.appearance?.style??'short';
+    const hair = new THREE.Mesh(new THREE.SphereGeometry(1,28,18,0,Math.PI*2,0,Math.PI*.5),
       standard(p.appearance?.hair ?? '#251b17'));
-    hair.position.y=.045;hair.scale.set(p.appearance?.style==='mohawk'?.06:.171,p.appearance?.style==='mohawk'?.27:.192,.17);hair.visible=p.appearance?.style!=='bald';headGroup.add(hair);
-    const cards=hairCards(p.appearance?.hair??'#251b17',p.appearance?.style??'short',p.id);cards.scale.set(.85,.82,.85);headGroup.add(cards);
+    hair.position.y=hairStyle==='afro'?.075:hairStyle==='long'?.03:.045;
+    hair.scale.set(
+      hairStyle==='mohawk'?.06:hairStyle==='afro'?.215:hairStyle==='fade'?.169:.171,
+      hairStyle==='mohawk'?.27:hairStyle==='afro'?.235:hairStyle==='fade'?.135:.192,
+      hairStyle==='afro'?.205:.17
+    );
+    hair.visible=hairStyle!=='bald'&&hairStyle!=='dreads';headGroup.add(hair);
+    const cards=hairCards(p.appearance?.hair??'#251b17',hairStyle,p.id);cards.scale.set(.85,.82,.85);headGroup.add(cards);
     const mouth=new THREE.Mesh(new THREE.SphereGeometry(1,16,8),standard('#8d5144'));mouth.name='mouth';mouth.scale.set(.045,.009,.008);mouth.position.set(0,-.105,.147);headGroup.add(mouth);
-    if(p.appearance?.beard&&p.appearance.beard!=='none'){
-      const beard=new THREE.Mesh(new THREE.SphereGeometry(1,24,16,0,Math.PI*2,Math.PI*.35,Math.PI*.6),new THREE.MeshStandardMaterial({color:p.appearance.hair,roughness:1,transparent:true,opacity:p.appearance.beard==='stubble'?.28:.88}));
+    const beardStyle=p.appearance?.beard??'none';
+    if(beardStyle==='stubble'||beardStyle==='full'){
+      const beard=new THREE.Mesh(new THREE.SphereGeometry(1,24,16,0,Math.PI*2,Math.PI*.35,Math.PI*.6),new THREE.MeshStandardMaterial({color:p.appearance?.hair??'#251b17',roughness:1,transparent:true,opacity:beardStyle==='stubble'?.28:.88}));
       beard.scale.set(.132,.13,.145);beard.position.set(0,-.09,.016);headGroup.add(beard);
+    } else if(beardStyle==='goatee'){
+      const goatee=new THREE.Mesh(new THREE.SphereGeometry(1,16,10),standard(p.appearance?.hair??'#251b17'));
+      goatee.scale.set(.04,.055,.02);goatee.position.set(0,-.145,.145);headGroup.add(goatee);
+    } else if(beardStyle==='mustache'){
+      for(const side of [-1,1]){
+        const mustache=new THREE.Mesh(new THREE.BoxGeometry(.045,.012,.012),standard(p.appearance?.hair??'#251b17'));
+        mustache.position.set(side*.021,-.082,.158);mustache.rotation.z=side*.12;headGroup.add(mustache);
+      }
     }
+    const faceSkin=new THREE.MeshStandardMaterial({color:skin.color.clone(),roughness:.72});
+    const irisColor=['#4a3427','#2f4b3b','#334e68','#553a2b'][p.id%4];
+    const noseTip=new THREE.Mesh(new THREE.SphereGeometry(.022,14,10),faceSkin);
+    noseTip.scale.set(.75,1,.72);noseTip.position.set(0,-.027,.173);headGroup.add(noseTip);
     for(const side of [-1,1]) {
-      const eye = new THREE.Mesh(new THREE.SphereGeometry(.017,12,8),standard('#211c1b'));
-      eye.name='eye-'+side;eye.position.set(side*.063,.035,.16);headGroup.add(eye);
+      const eye = new THREE.Group();eye.name='eye-'+side;eye.position.set(side*.063,.035,.16);headGroup.add(eye);
+      const sclera=new THREE.Mesh(new THREE.SphereGeometry(.018,14,10),new THREE.MeshStandardMaterial({color:'#ece7df',roughness:.38}));
+      sclera.scale.set(1,.72,.62);eye.add(sclera);
+      const iris=new THREE.Mesh(new THREE.CircleGeometry(.0075,14),new THREE.MeshStandardMaterial({color:irisColor,roughness:.42}));
+      iris.position.z=.012;eye.add(iris);
+      const pupil=new THREE.Mesh(new THREE.CircleGeometry(.0035,12),new THREE.MeshBasicMaterial({color:'#090908'}));
+      pupil.position.z=.013;eye.add(pupil);
+      const brow=new THREE.Mesh(new THREE.BoxGeometry(.058,.009,.009),standard(p.appearance?.hair??'#251b17'));
+      brow.position.set(side*.063,.077,.157);brow.rotation.z=-side*.1;headGroup.add(brow);
+      const ear=new THREE.Mesh(new THREE.SphereGeometry(.027,12,8),faceSkin);
+      ear.scale.set(.55,1,.5);ear.position.set(side*.158,.015,.012);headGroup.add(ear);
       if(p.appearance?.wristband){
         const band = new THREE.Mesh(new THREE.TorusGeometry(.059,.012,8,20),standard('#f2efe7'));
         band.rotation.x=Math.PI/2;band.position.set(side*.064,-.31,.009);elbows[side===-1?0:1].add(band);

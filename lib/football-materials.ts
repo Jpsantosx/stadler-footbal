@@ -16,8 +16,16 @@ function normalFromHeight(source:THREE.CanvasTexture){
 }
 export function athleteMaterials(color:string,kit:THREE.Texture,id:number){
  const pores=texture(id+42,'skin'),weave=texture(id+19,'cloth');
- const skin=new THREE.MeshPhysicalMaterial({color,normalMap:normalFromHeight(pores),normalScale:new THREE.Vector2(.7,.7),roughnessMap:pores,roughness:.8,clearcoat:0,clearcoatRoughness:.18});
- const shirt=new THREE.MeshPhysicalMaterial({map:kit,normalMap:normalFromHeight(weave),normalScale:new THREE.Vector2(.6,.6),roughnessMap:weave,roughness:.93,sheen:.6,sheenRoughness:.85,sheenColor:new THREE.Color('#d9dfed')});
+ const skin=new THREE.MeshPhysicalMaterial({
+  color,normalMap:normalFromHeight(pores),normalScale:new THREE.Vector2(.58,.58),
+  roughnessMap:pores,roughness:.76,clearcoat:0,clearcoatRoughness:.28,
+  ior:1.42,specularIntensity:.38,specularColor:new THREE.Color('#ffd3bd'),envMapIntensity:.48
+ });
+ const shirt=new THREE.MeshPhysicalMaterial({
+  map:kit,normalMap:normalFromHeight(weave),normalScale:new THREE.Vector2(.72,.72),
+  roughnessMap:weave,roughness:.9,sheen:.72,sheenRoughness:.8,
+  sheenColor:new THREE.Color('#e5ebf3'),envMapIntensity:.35
+ });
  // Wrapped back-light diffusion approximates thin skin; it is not a scanned skin asset.
  skin.onBeforeCompile=shader=>{shader.fragmentShader=shader.fragmentShader.replace('#include <lights_fragment_end>',`#include <lights_fragment_end>
  #if NUM_DIR_LIGHTS > 0
@@ -31,12 +39,19 @@ export function athleteMaterials(color:string,kit:THREE.Texture,id:number){
  return {skin,shirt};
 }
 export function hairCards(color:string,style:string,id:number){
- const group=new THREE.Group();if(style==='bald')return group;
+ const group=new THREE.Group();if(style==='bald'||style==='fade')return group;
  const map=texture(id+77,'hair');map.repeat.set(1,1);
- const material=new THREE.MeshStandardMaterial({color,alphaMap:map,alphaTest:.25,side:THREE.DoubleSide,roughness:.8});
- const length=style==='long'?.44:style==='curly'?.23:.14;
- for(let i=0;i<24;i++){
-  const angle=i/24*Math.PI*2,card=new THREE.Mesh(new THREE.PlaneGeometry(.13,length,2,4),material);
-  card.position.set(Math.sin(angle)*.17,.17-(style==='long'?.13:0),Math.cos(angle)*.17);card.rotation.set(.25,angle,Math.sin(i)*.18);group.add(card);
+ const material=new THREE.MeshStandardMaterial({color,alphaMap:map,alphaTest:.28,side:THREE.DoubleSide,roughness:.9});
+ const count=style==='dreads'?34:style==='afro'?38:style==='curly'?30:24;
+ const length=style==='long'?.44:style==='dreads'?.5:style==='curly'||style==='afro'?.22:.14;
+ const radius=style==='afro'?.205:style==='dreads'?.18:.17;
+ for(let i=0;i<count;i++){
+  const angle=i/count*Math.PI*2;
+  const width=style==='dreads'?.055:style==='afro'?.11:.13;
+  const card=new THREE.Mesh(new THREE.PlaneGeometry(width,length,2,style==='dreads'?6:4),material);
+  const ring=style==='afro'?(i%3)*.018:0;
+  card.position.set(Math.sin(angle)*(radius+ring),.17-(style==='long'?.13:style==='dreads'?.19:0),Math.cos(angle)*(radius+ring));
+  card.rotation.set(style==='dreads'?.08:.25,angle,Math.sin(i*1.7)*.18);
+  group.add(card);
  }return group;
 }

@@ -94,7 +94,7 @@ function drawStadium(
   ctx.fillStyle = "#18242b";
   ctx.fillRect(0, view.height * 0.04, view.width, view.height * 0.09);
   const dots =
-    quality === "performance" ? 120 : quality === "balanced" ? 230 : 360;
+    quality === "performance" ? 120 : quality === "balanced" ? 220 : quality === "high" ? 300 : 380;
   for (let index = 0; index < dots; index += 1) {
     const x = ((index * 83) % 997) / 997;
     const y = (((index * 47) % 199) / 199) * 0.07 + 0.05;
@@ -203,7 +203,7 @@ function drawStadium(
     const crest = project(view, 50, 32);
     const crestRadius = clamp(view.height * 0.052, 19, 42);
     ctx.save();
-    ctx.globalAlpha = quality === "ultra" ? 0.13 : 0.085;
+    ctx.globalAlpha = quality === "ultra" ? 0.13 : quality === "high" ? 0.105 : 0.085;
     ctx.strokeStyle = "#ecfff1";
     ctx.lineWidth = Math.max(1.2, view.height / 430);
     ctx.beginPath();

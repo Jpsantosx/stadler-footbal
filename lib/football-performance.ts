@@ -19,7 +19,13 @@ export function createRenderBudget() {
         if (warmup > 2 && fast > 5) { scale = Math.min(1, scale + .06); slow = fast = 0; }
       } else if (!active) { slow = fast = 0; }
       result.scale = scale;
-      result.quality = quality === "performance" || scale < .7 ? "performance" : quality === "ultra" && scale < .9 ? "balanced" : quality;
+      result.quality =
+        quality === "performance" || scale < .7 ? "performance"
+          : quality === "balanced" ? "balanced"
+            : quality === "high" ? (scale < .86 ? "balanced" : "high")
+              : scale < .82 ? "balanced"
+                : scale < .94 ? "high"
+                  : "ultra";
       return result;
     },
   };

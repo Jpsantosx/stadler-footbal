@@ -7,7 +7,7 @@ import { recordKick, recordReception, recordGoal, trackAthletes, statsFor, type 
 export type Side = "home" | "away";
 export type Role = "GK" | "DF" | "MF" | "FW";
 export type Screen = "menu" | "playing" | "celebrating" | "finished";
-export type Quality = "performance" | "balanced" | "ultra";
+export type Quality = "performance" | "balanced" | "high" | "ultra";
 export type Difficulty = "easy" | "normal" | "hard";
 export type GameMode = "solo" | "local2p";
 export type CompetitionMode = "friendly" | "league" | "cup" | "career";
@@ -151,9 +151,9 @@ export type MarketEntry = {
 
 export type ShotKind = "auto" | "placed" | "power" | "lob";
 export type SkillKind = "rainbow" | "feint" | "bicycle" | "crossHigh" | "crossLow" | "header" | "volley" | "oneTwo";
-export type PlayerLook = { skin: string; hair: string; style: "short" | "mohawk" | "bald" | "curly" | "long"; height: number; celebration: "wings" | "jump" | "point";
+export type PlayerLook = { skin: string; hair: string; style: "short" | "mohawk" | "bald" | "curly" | "long" | "afro" | "fade" | "dreads"; height: number; celebration: "wings" | "jump" | "point";
   weight?: number; eyes?: number; eyeSize?: number; nose?: number; mouth?: number; jaw?: number;
-  beard?: "none" | "stubble" | "full"; boots?: string; wristband?: boolean; socks?: "high" | "low"; tucked?: boolean;
+  beard?: "none" | "stubble" | "full" | "goatee" | "mustache"; boots?: string; wristband?: boolean; socks?: "high" | "low"; tucked?: boolean;
 };
 export type TrainingKind = "dribble" | "freeKick" | "penalty" | "bicycle";
 export type TrainingSession = { kind: TrainingKind; attempts: number; successes: number; started: number; resolved: boolean; checkpoint: number; baselineGoals: number; feedback: string; next: number };

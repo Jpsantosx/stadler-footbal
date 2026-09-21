@@ -473,7 +473,7 @@ export default function FootballGame() {
         const savedControls=parseControls(JSON.parse(window.localStorage.getItem('stadler-controls-v2')||'{}'));controlsRef.current=savedControls;setControls(savedControls);
         const preferences = JSON.parse(window.localStorage.getItem("stadler-presentation-v1") || "{}");
         setPresentation(parsePresentation(preferences));
-        if (["performance","balanced","ultra"].includes(preferences.quality)) setQuality(preferences.quality);
+        if (["performance","balanced","high","ultra"].includes(preferences.quality)) setQuality(preferences.quality);
         else if (window.matchMedia("(pointer: coarse)").matches) setQuality("balanced");
         if (typeof preferences.audioEnabled === "boolean") setAudioEnabled(preferences.audioEnabled);
       } catch { /* Corrupt or unavailable preferences use playable defaults. */ }
@@ -924,8 +924,10 @@ export default function FootballGame() {
         renderQuality === "performance"
           ? 1
           : renderQuality === "balanced"
-            ? 1.45
-            : 2;
+            ? 1.35
+            : renderQuality === "high"
+              ? 1.7
+              : 2;
       const dpr = Math.min(window.devicePixelRatio || 1, maxDpr) * renderScale;
       const width = Math.max(320, rect.width);
       const height = Math.max(180, rect.height);
@@ -2695,22 +2697,29 @@ export default function FootballGame() {
               <label>
                 <RadioGroupItem value="performance" />
                 <span>
-                  <b>Desempenho</b>
-                  <small>Mais FPS</small>
+                  <b>Baixo</b>
+                  <small>FPS máximo e visual limpo</small>
                 </span>
               </label>
               <label>
                 <RadioGroupItem value="balanced" />
                 <span>
-                  <b>Equilibrado</b>
-                  <small>Boa imagem</small>
+                  <b>Médio</b>
+                  <small>Boa imagem em celulares</small>
+                </span>
+              </label>
+              <label>
+                <RadioGroupItem value="high" />
+                <span>
+                  <b>Alto</b>
+                  <small>Mais sombras, torcida e detalhes</small>
                 </span>
               </label>
               <label>
                 <RadioGroupItem value="ultra" />
                 <span>
                   <b>Ultra</b>
-                  <small>Mais detalhes</small>
+                  <small>Qualidade máxima para PC</small>
                 </span>
               </label>
             </RadioGroup>
@@ -2727,6 +2736,7 @@ export default function FootballGame() {
             <label><span><Sun size={17} /> Iluminação do estádio</span>
               <select aria-label="Iluminação do estádio" value={presentation.lighting} onChange={e=>setPresentation(p=>({...p,lighting:e.target.value as StadiumLight}))}>
                 <option value="night">Noite · refletores</option>
+                <option value="sunset">Fim de tarde · luz dourada</option>
                 <option value="day">Dia · luz natural</option>
               </select>
             </label>

@@ -10,7 +10,7 @@ export function athletePose(p: Player, m: Locomotion, dt: number) {
   const step = clamp(dt, 0, .1), blend = 1 - Math.exp(-12 * step);
   const speed = Math.hypot(p.vx, p.vy);
   m.speed += (speed - m.speed) * blend;
-  m.phase += speed * step * .95;
+  m.phase += (speed > .45 ? speed * .95 : 1.05) * step;
   const target = Math.atan2(p.facingX, p.facingY);
   const angle = Math.atan2(Math.sin(target - m.heading), Math.cos(target - m.heading));
   m.heading += angle * (1 - Math.exp(-10 * step));
@@ -21,8 +21,18 @@ export function athletePose(p: Player, m: Locomotion, dt: number) {
   const amplitude = clamp(m.speed / 21, 0, .78);
   // A slower planted phase and bent-knee recovery replace symmetric pendulum legs.
   const phases=[m.phase,m.phase+Math.PI];
-  const stride=phases.map(t=>Math.sin(t)*amplitude*(Math.cos(t)>0?1:.82));
-  const knees=phases.map(t=>Math.max(0,Math.cos(t)) * amplitude * 1.5 + .06);
+  // Hold the support leg closer to the turf through the contact phase. This
+  // reduces the skating look without changing simulation positions.
+  const stride=phases.map(t=>{
+    const swing=Math.sin(t)*amplitude*(Math.cos(t)>0?1:.82);
+    const planted=Math.max(0,Math.cos(t));
+    return swing*(1-planted*.14);
+  });
+  const knees=phases.map(t=>{
+    const recovery=Math.max(0,Math.cos(t));
+    const support=Math.max(0,-Math.cos(t));
+    return recovery*amplitude*1.5 + support*amplitude*.09 + .055;
+  });
 
   const arms = [-stride[0] * .7, -stride[1] * .7];
   const elbows = [-.35 - amplitude * .65, -.35 - amplitude * .65];

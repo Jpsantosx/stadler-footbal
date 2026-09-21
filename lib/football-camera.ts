@@ -1,7 +1,7 @@
 import type { MatchState } from "./football-engine.ts";
 
 export type CameraMode = "broadcast" | "tactical" | "close" | "pro";
-export type StadiumLight = "night" | "day";
+export type StadiumLight = "night" | "sunset" | "day";
 export type PresentationSettings = { camera: CameraMode; lighting: StadiumLight; automatic: boolean; radar: boolean };
 export type CameraFrame = { x: number; y: number; span: number };
 export const DEFAULT_PRESENTATION: PresentationSettings = { camera: "broadcast", lighting: "night", automatic: true, radar: true };
@@ -50,7 +50,7 @@ export function parsePresentation(value: unknown): PresentationSettings {
   const saved = value && typeof value === "object" ? value as Record<string, unknown> : {};
   return {
     camera: saved.camera === "pro" || saved.camera === "close" || saved.camera === "tactical" ? saved.camera : "broadcast",
-    lighting: saved.lighting === "day" ? "day" : "night",
+    lighting: saved.lighting === "day" || saved.lighting === "sunset" ? saved.lighting : "night",
     automatic: saved.automatic !== false,
     radar: saved.radar !== false,
   };
