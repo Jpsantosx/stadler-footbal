@@ -126,6 +126,8 @@ export function createRiggedBody(
   for (let i = 0; i < groups.length; i++) { geometry.addGroup(offset, groups[i].length, i); offset += groups[i].length; }
   geometry.setIndex(groups.flat());
   geometry.computeVertexNormals();
+  geometry.computeBoundingBox();
+  geometry.computeBoundingSphere();
   geometry.morphTargetsRelative = true;
   geometry.morphAttributes.position = morphs.map((array, i) => { const attr = new THREE.BufferAttribute(array, 3); attr.name = morphKeys[i]; return attr; });
 
@@ -148,6 +150,6 @@ export function createRiggedBody(
   const mesh = new THREE.SkinnedMesh(geometry, materials); mesh.name = 'continuous-rigged-athlete';
   // Skeleton is a sibling of the mesh: animation transforms never move bind space.
   const root = new THREE.Group(); root.add(hip, mesh); root.updateMatrixWorld(true); mesh.bind(skeleton);
-  mesh.castShadow = mesh.receiveShadow = true; mesh.frustumCulled = false;
+  mesh.castShadow = mesh.receiveShadow = true; mesh.frustumCulled = true;
   return { mesh, root, head, legs, knees, feet, arms, elbows };
 }

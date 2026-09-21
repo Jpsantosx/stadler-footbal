@@ -158,8 +158,10 @@ export function createFootballAthlete(p: Player, team: Team): Athlete {
     const look=athleteVisualLook(p);
     const build=athleteBuild(p,look);
     const {skin,shirt}=athleteMaterials(look.skin,kitTexture(team,p),p.id);
-    const shorts=athleteFabricMaterial(p.role === 'GK' ? '#243d28' : team.shorts,p.id+11,12);
-    const socks=athleteFabricMaterial(p.role === 'GK' ? '#abc949' : team.socks,p.id+29,14);
+    // Shorts and socks reuse the shirt's micro-weave maps. They still have
+    // independent PBR materials, but do not allocate extra textures per player.
+    const shorts=athleteFabricMaterial(p.role === 'GK' ? '#243d28' : team.shorts,shirt,.52);
+    const socks=athleteFabricMaterial(p.role === 'GK' ? '#abc949' : team.socks,shirt,.38);
     const rig = createRiggedBody([skin, shirt, shorts, socks, standard(look.boots ?? '#e5e8de')],
       look.socks === 'low', look.tucked !== false, build);
     const {root:body,mesh:torso,head:headGroup,legs,knees,feet,arms,elbows}=rig;
