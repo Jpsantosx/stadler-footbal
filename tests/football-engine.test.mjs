@@ -1206,8 +1206,17 @@ test('humanoid skin is one closed connected surface with normalized bone weights
   assert.ok(Math.abs(w.getX(i)+w.getY(i)+w.getZ(i)+w.getW(i)-1)<1e-6);
   for(let j=0;j<4;j++){assert.ok(w.array[i*4+j]>=0);assert.ok(bones.array[i*4+j]<rig.mesh.skeleton.bones.length);}
  }
- assert.equal(g.morphAttributes.position.length,5);assert.ok(rig.mesh.isSkinnedMesh);
+ assert.equal(g.morphAttributes.position.length,5);assert.ok(rig.mesh.isSkinnedMesh);assert.equal(rig.feet.length,2);
  rig.mesh.skeleton.dispose();g.dispose();rig.mesh.material.forEach(m=>m.dispose());
+});
+
+test('athlete build profiles change the real mesh silhouette without splitting the body',()=>{
+ const mats=()=>Array.from({length:5},()=>new THREE.MeshStandardMaterial());
+ const lean=createRiggedBody(mats(),false,true,{shoulders:.91,chest:.94,thigh:.94,arm:.93});
+ const strong=createRiggedBody(mats(),false,true,{shoulders:1.13,chest:1.11,thigh:1.1,arm:1.09});
+ const torsoWidth=rig=>{const p=rig.mesh.geometry.getAttribute('position');let total=0,count=0;for(let i=0;i<p.count;i++)if(p.getY(i)>1.72&&p.getY(i)<1.9){total+=Math.abs(p.getX(i));count++;}return total/count;};
+ assert.ok(torsoWidth(strong)>torsoWidth(lean)*1.05);
+ for(const rig of [lean,strong]){rig.mesh.skeleton.dispose();rig.mesh.geometry.dispose();rig.mesh.material.forEach(m=>m.dispose());}
 });
 
 test('knee animation bends the continuous skin while keeping the torso anchored',()=>{

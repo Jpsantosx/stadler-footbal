@@ -33,6 +33,12 @@ export function athletePose(p: Player, m: Locomotion, dt: number) {
     const support=Math.max(0,-Math.cos(t));
     return recovery*amplitude*1.5 + support*amplitude*.09 + .055;
   });
+  const feet=phases.map((t,i)=>{
+    const planted=Math.max(0,Math.cos(t));
+    const recovery=Math.max(0,-Math.cos(t));
+    const freePitch=clamp(-stride[i]*.48+knees[i]*.16,-.48,.5);
+    return freePitch*(1-planted*.76)+recovery*.07;
+  });
 
   const arms = [-stride[0] * .7, -stride[1] * .7];
   const elbows = [-.35 - amplitude * .65, -.35 - amplitude * .65];
@@ -42,14 +48,14 @@ export function athletePose(p: Player, m: Locomotion, dt: number) {
     const duration = p.action === "shot" ? .5 : .34;
     const progress = clamp(1 - p.actionTimer / duration, 0, 1);
     kick = Math.sin(progress * Math.PI) * (p.action === "shot" ? 1.35 : .88);
-    stride[1] = -.2 - kick; knees[1] = .15 + Math.max(0, .22 - progress) * 3;
-    stride[0] *= .25; arms[0] = -.65; arms[1] = .5;
+    stride[1] = -.2 - kick; knees[1] = .15 + Math.max(0, .22 - progress) * 3; feet[1]=-.18-kick*.08;
+    stride[0] *= .25; feet[0]*=.25; arms[0] = -.65; arms[1] = .5;
     bob *= .3;
   } else if (p.action === "control" && p.actionTimer > 0) {
-    stride[1] = -.3; knees[1] = .65; arms[0] -= .2; arms[1] -= .2;
+    stride[1] = -.3; knees[1] = .65; feet[1]=.36; arms[0] -= .2; arms[1] -= .2;
   }
   let lean=m.lean, bank=m.turn;
-  if(p.actionTimer>0 && p.action==='bicycle') {const t=clamp(1-p.actionTimer/.85,0,1);lean=-Math.sin(t*Math.PI)*1.65;bob+=Math.sin(t*Math.PI)*1.2;stride[0]=1.3;stride[1]=-1.4;arms[0]=arms[1]=-.9;}
+  if(p.actionTimer>0 && p.action==='bicycle') {const t=clamp(1-p.actionTimer/.85,0,1);lean=-Math.sin(t*Math.PI)*1.65;bob+=Math.sin(t*Math.PI)*1.2;stride[0]=1.3;stride[1]=-1.4;feet[0]=-.25;feet[1]=.2;arms[0]=arms[1]=-.9;}
   if(p.actionTimer>0 && p.action==='rainbow'){knees[0]=1.1;knees[1]=.9;bob+=Math.sin(clamp(1-p.actionTimer/.62,0,1)*Math.PI)*.2;}
   if(p.actionTimer>0 && p.action==='feint')bank+=Math.sin(clamp(1-p.actionTimer/.4,0,1)*Math.PI)*.3;
   if(p.actionTimer>0 && p.action==='header'){const t=clamp(1-p.actionTimer/.65,0,1);bob+=Math.sin(t*Math.PI)*.65;lean+=Math.sin(t*Math.PI)*.36;arms[0]=arms[1]=-.8;}
@@ -62,9 +68,9 @@ export function athletePose(p: Player, m: Locomotion, dt: number) {
   if(p.shielding){arms[0]=-.9;arms[1]=.6;lean+=.08;}
   if(p.action==='request'&&p.actionTimer>0){arms[0]=-2.85;elbows[0]=-.15;}
   if(m.speed<.5)bob+=Math.sin(m.phase+p.stamina*.02)*.008;
-  const raw=[...stride,...knees,...arms,...elbows,bob,lean,bank];
+  const raw=[...stride,...knees,...arms,...elbows,...feet,bob,lean,bank];
   if(!m.poses)m.poses=[...raw];
   raw.forEach((n,i)=>{m.poses![i]+=(n-m.poses![i])*(1-Math.exp(-22*step));});
   const poses=m.poses;
-  return {heading:m.heading,stride:poses.slice(0,2),knees:poses.slice(2,4),arms:poses.slice(4,6),elbows:poses.slice(6,8),bob:poses[8],lean:poses[9],bank:poses[10],kick};
+  return {heading:m.heading,stride:poses.slice(0,2),knees:poses.slice(2,4),arms:poses.slice(4,6),elbows:poses.slice(6,8),feet:poses.slice(8,10),bob:poses[10],lean:poses[11],bank:poses[12],kick};
 }
