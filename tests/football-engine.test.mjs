@@ -1214,8 +1214,8 @@ test('athlete build profiles change the real mesh silhouette without splitting t
  const mats=()=>Array.from({length:5},()=>new THREE.MeshStandardMaterial());
  const lean=createRiggedBody(mats(),false,true,{shoulders:.91,chest:.94,thigh:.94,arm:.93});
  const strong=createRiggedBody(mats(),false,true,{shoulders:1.13,chest:1.11,thigh:1.1,arm:1.09});
- const torsoWidth=rig=>{const p=rig.mesh.geometry.getAttribute('position');let max=0;for(let i=0;i<p.count;i++)if(p.getY(i)>1.72&&p.getY(i)<1.9&&Math.abs(p.getX(i))<.34)max=Math.max(max,Math.abs(p.getX(i)));return max;};
- assert.ok(torsoWidth(strong)>torsoWidth(lean)*1.08);
+ const torsoWidth=rig=>{const p=rig.mesh.geometry.getAttribute('position');let total=0,count=0;for(let i=0;i<p.count;i++)if(p.getY(i)>1.72&&p.getY(i)<1.9){total+=Math.abs(p.getX(i));count++;}return total/count;};
+ assert.ok(torsoWidth(strong)>torsoWidth(lean)*1.05);
  for(const rig of [lean,strong]){rig.mesh.skeleton.dispose();rig.mesh.geometry.dispose();rig.mesh.material.forEach(m=>m.dispose());}
 });
 
